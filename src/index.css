@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #171a22;
+  color: #e6e9f0;
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The script page uses the body face; cues & headings use the display face. */
+.script {
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+}
+
+/* Textareas that grow with content and never show their own chrome. */
+.grow-input {
+  field-sizing: content;
+  resize: none;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: inherit;
+  font: inherit;
+  line-height: 1.55;
+}
+.grow-input::placeholder {
+  color: #9aa2b2;
+}
+
+/* Focus ring for the whole element row */
+.row-focus {
+  box-shadow: inset 2px 0 0 0 var(--cue-color, #4f7cff);
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.34s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Thin custom scrollbars on the dark chrome */
+.thin-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: #2b3140;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* ————————————————————————————————————————————————
+   Print — the page becomes a clean stage manuscript.
+   ———————————————————————————————————————————————— */
+@media print {
+  @page {
+    margin: 2.4cm 2.2cm;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  .print-sheet {
+    box-shadow: none !important;
+    margin: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .print-sheet * {
+    color: #000 !important;
+  }
+}
+.print-only {
+  display: none;
+}
