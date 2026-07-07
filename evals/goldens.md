@@ -88,6 +88,36 @@ Qualities:
 
 ---
 
+## 7. Retoucher — line-level rewrite (tighten, FR)
+
+Input line (Québécois, padded): "Je pense que tu es peut-être un petit peu en retard, non ?" · mode `tighten`.
+
+Qualities:
+- Returns 3 variants, each SHORTER, same intent (a soft reproach) and register.
+- `note` explains the cut, in French.
+- No name prefix, no quotation marks, speakable.
+- For mode `tactic`: each variant plays a *different* tactic and names it in `note`.
+
+## 8. Voix — voice-consistency read (FR)
+
+Input: BRUNO's lines, two clipped/familiar + one deliberately over-formal
+("Ma chère, auriez-vous l'amabilité de déverrouiller cette porte…").
+
+Qualities:
+- `read` names the voice concretely (short, clipped, familiar) — not generic praise.
+- `points` flags the over-formal line as a register break (quotes the real fragment).
+- Consistent input → empty `points` and says so; never invents a problem.
+- No flattery (Conduite AI house rule 8).
+
+## 9. Et si — complications (FR)
+
+Input: a short reunion scene (Bruno returns after ten years; Alice: "Tu aurais dû prévenir").
+
+Qualities:
+- 3 ideas, each a concrete "Et si…" specific to THESE characters (not generic craft advice).
+- Each raises stakes / turns the scene; `why` names the pressure.
+- Offered as options, never as corrections. French output.
+
 ### How to run
 `npm run dev` (netlify dev with `CLAUDE_API_KEY` set) or hit the deployed
 `/api/atelier`. POST bodies mirror `src/api.ts` (`RelanceReq` / `DramaturgieReq` /
