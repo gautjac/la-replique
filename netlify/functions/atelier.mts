@@ -1,13 +1,17 @@
 import type { Context } from "@netlify/functions";
 import {
   dramaturgie,
+  etsi,
   relance,
+  retoucher,
   traduire,
+  voix,
   type Lang,
+  type RetoucheMode,
 } from "./lib/dramaturge.ts";
 
 interface Body {
-  op?: "relance" | "dramaturgie" | "traduire";
+  op?: "relance" | "dramaturgie" | "traduire" | "retoucher" | "voix" | "etsi";
   lang?: Lang;
   from?: Lang;
   to?: Lang;
@@ -15,6 +19,9 @@ interface Body {
   characterName?: string;
   cast?: string[];
   items?: { k: string; t: string }[];
+  line?: string;
+  mode?: RetoucheMode;
+  lines?: string[];
 }
 
 const errJson = (data: unknown, status = 200) =>
@@ -46,6 +53,16 @@ export default async (req: Request, _context: Context) => {
     if (!Array.isArray(body.items) || body.items.length === 0) {
       return errJson({ error: "Nothing to translate." }, 400);
     }
+  } else if (body.op === "retoucher") {
+    if (!body.line?.trim() || !body.characterName?.trim()) {
+      return errJson({ error: "Need a line and a character." }, 400);
+    }
+  } else if (body.op === "voix") {
+    if (!Array.isArray(body.lines) || body.lines.length === 0 || !body.characterName?.trim()) {
+      return errJson({ error: "Need a character's lines." }, 400);
+    }
+  } else if (body.op === "etsi") {
+    if (!body.scene?.trim()) return errJson({ error: "Need a scene." }, 400);
   } else {
     return errJson({ error: "Unknown op" }, 400);
   }
@@ -77,6 +94,18 @@ export default async (req: Request, _context: Context) => {
           });
         } else if (body.op === "dramaturgie") {
           result = await dramaturgie({ lang, scene: body.scene! });
+        } else if (body.op === "retoucher") {
+          result = await retoucher({
+            lang,
+            scene: body.scene ?? "",
+            characterName: body.characterName!,
+            line: body.line!,
+            mode: body.mode === "tighten" || body.mode === "tactic" ? body.mode : "alternatives",
+          });
+        } else if (body.op === "voix") {
+          result = await voix({ lang, characterName: body.characterName!, lines: body.lines! });
+        } else if (body.op === "etsi") {
+          result = await etsi({ lang, scene: body.scene! });
         } else {
           const from: Lang = body.from === "en" ? "en" : "fr";
           const to: Lang = body.to === "en" ? "en" : from === "fr" ? "en" : "fr";

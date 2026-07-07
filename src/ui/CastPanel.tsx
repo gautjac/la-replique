@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useUI } from "../i18n";
 import { castStats, makeCharacter } from "../model";
 import { addCharacterTo, removeCharacter, updateCharacter } from "../ops";
+import { downloadText, slugify, toSides } from "../export";
 import type { Lang, Play } from "../types";
 import { CAST_SWATCHES } from "../types";
 import { Segmented } from "./common";
@@ -86,13 +87,22 @@ export function CastPanel({ play, commit }: { play: Play; commit: (p: Play) => v
                 placeholder={t("characterNote")}
                 className="mt-2 w-full bg-transparent text-xs text-ink-faint outline-none placeholder:text-ink-faint/60"
               />
-              <div className="mt-2 flex gap-3 text-xs text-ink-faint">
+              <div className="mt-2 flex items-center gap-3 text-xs text-ink-faint">
                 <span>
                   <span className="font-semibold text-white">{s?.lines ?? 0}</span> {t("lines")}
                 </span>
                 <span>
                   <span className="font-semibold text-white">{s?.scenes ?? 0}</span> {t("scenesIn")}
                 </span>
+                {(s?.lines ?? 0) > 0 && (
+                  <button
+                    onClick={() => downloadText(`sides-${slugify(c.name)}.txt`, toSides(play, c.id), "text/plain")}
+                    className="ml-auto rounded-md px-2 py-1 text-gel-bright transition hover:bg-gel/15"
+                    title={t("sides")}
+                  >
+                    ↓ {t("sides")}
+                  </button>
+                )}
               </div>
             </li>
           );

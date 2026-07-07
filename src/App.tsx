@@ -14,9 +14,16 @@ import { CastPanel } from "./ui/CastPanel";
 import { Measures } from "./ui/Measures";
 import { Atelier } from "./ui/Atelier";
 import { Onboarding } from "./ui/Onboarding";
+import { PrintView } from "./ui/PrintView";
+import { TableRead } from "./ui/TableRead";
+import { Versions } from "./ui/Versions";
+import { ImportPaste } from "./ui/ImportPaste";
+import { TimelineRibbon } from "./ui/TimelineRibbon";
+import { toSurtitles } from "./export";
 
-type Panel = "cast" | "measures" | "atelier" | null;
+type Panel = "cast" | "measures" | "atelier" | "versions" | null;
 type View = "script" | "board";
+type PrintStyle = "clean" | "theatre";
 
 function usePersistedLocale(): [Locale, (l: Locale) => void] {
   const [locale, setLocale] = useState<Locale>(() => {
@@ -39,6 +46,11 @@ export default function App() {
   const [jumpTarget, setJumpTarget] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [toast, setToast] = useState<{ msg: string; key: number } | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
+  const [showAlt, setShowAlt] = useState(false);
+  const [printStyle, setPrintStyle] = useState<PrintStyle>("clean");
+  const [tableRead, setTableRead] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const plays = useLiveQuery(() => db.plays.orderBy("updatedAt").reverse().toArray(), [], undefined) as
     | Play[]
@@ -183,12 +195,16 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [current, undo]);
 
-  const doExport = (kind: "print" | "txt" | "json") => {
+  const doExport = (kind: "print-clean" | "print-theatre" | "txt" | "surtitles" | "json") => {
     if (!current) return;
     setExportOpen(false);
     const slug = slugify(current.title);
-    if (kind === "print") window.print();
-    else if (kind === "txt") downloadText(`${slug}.txt`, toPlainText(current), "text/plain");
+    if (kind === "print-clean" || kind === "print-theatre") {
+      setPrintStyle(kind === "print-theatre" ? "theatre" : "clean");
+      // let the print style commit to the DOM before printing
+      window.setTimeout(() => window.print(), 60);
+    } else if (kind === "txt") downloadText(`${slug}.txt`, toPlainText(current), "text/plain");
+    else if (kind === "surtitles") downloadText(`${slug}-surtitres.txt`, toSurtitles(current), "text/plain");
     else downloadText(`${slug}.json`, toJSON(current), "application/json");
   };
 
@@ -213,6 +229,7 @@ export default function App() {
           onNewSample={() => startPlay(samplePlay(locale))}
           onDelete={(id) => void deletePlay(id)}
           onImport={(f) => void importFile(f)}
+          onImportText={() => setShowImport(true)}
         />
       ) : (
         <div className="min-h-full">
@@ -226,6 +243,12 @@ export default function App() {
             onUndo={undo}
             onBack={backToLibrary}
             onPanel={setPanel}
+            hasAlt={!!current.altLang}
+            focusMode={focusMode}
+            setFocusMode={setFocusMode}
+            showAlt={showAlt}
+            setShowAlt={setShowAlt}
+            onTableRead={() => setTableRead(true)}
             exportOpen={exportOpen}
             setExportOpen={setExportOpen}
             onExport={doExport}
@@ -233,7 +256,17 @@ export default function App() {
           {view === "board" ? (
             <BeatBoard play={current} commit={commit} onJump={jumpToScene} />
           ) : (
-            <Editor play={current} commit={commit} jumpTargetId={jumpTarget} onJumped={() => setJumpTarget(null)} />
+            <>
+              <TimelineRibbon play={current} onJump={jumpToScene} />
+              <Editor
+                play={current}
+                commit={commit}
+                jumpTargetId={jumpTarget}
+                onJumped={() => setJumpTarget(null)}
+                focusMode={focusMode}
+                showAlt={showAlt}
+              />
+            </>
           )}
 
           {panel === "cast" && (
@@ -251,7 +284,25 @@ export default function App() {
               <Atelier play={current} commit={commit} onCreatePlay={startPlay} onToast={showToast} />
             </Drawer>
           )}
+          {panel === "versions" && (
+            <Drawer title={tt("versions")} onClose={() => setPanel(null)}>
+              <Versions play={current} onRestore={commit} onToast={showToast} />
+            </Drawer>
+          )}
+
+          <PrintView play={current} style={printStyle} />
+          {tableRead && <TableRead play={current} onClose={() => setTableRead(false)} />}
         </div>
+      )}
+
+      {showImport && (
+        <ImportPaste
+          onCreate={(p) => {
+            startPlay(p);
+            setShowImport(false);
+          }}
+          onClose={() => setShowImport(false)}
+        />
       )}
 
       {toast && (
@@ -276,12 +327,20 @@ function EditorHeader(props: {
   onUndo: () => void;
   onBack: () => void;
   onPanel: (p: Panel) => void;
+  hasAlt: boolean;
+  focusMode: boolean;
+  setFocusMode: (v: boolean) => void;
+  showAlt: boolean;
+  setShowAlt: (v: boolean) => void;
+  onTableRead: () => void;
   exportOpen: boolean;
   setExportOpen: (v: boolean) => void;
-  onExport: (kind: "print" | "txt" | "json") => void;
+  onExport: (kind: "print-clean" | "print-theatre" | "txt" | "surtitles" | "json") => void;
 }) {
   const t = (k: UIKey) => STRINGS[k][props.locale];
   const exportRef = useRef<HTMLDivElement>(null);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!props.exportOpen) return;
@@ -291,6 +350,15 @@ function EditorHeader(props: {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [props]);
+
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (toolsRef.current && !toolsRef.current.contains(e.target as Node)) setToolsOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [toolsOpen]);
 
   return (
     <header className="no-print sticky top-0 z-30 flex items-center gap-2 border-b border-desk-rule bg-desk/85 px-3 py-2.5 backdrop-blur sm:px-5">
@@ -328,6 +396,43 @@ function EditorHeader(props: {
         </svg>
       </button>
 
+      <div className="relative" ref={toolsRef}>
+        <button
+          onClick={() => setToolsOpen(!toolsOpen)}
+          title={t("tools")}
+          className="rounded-lg p-2 text-ink-faint transition hover:bg-desk-light hover:text-white"
+        >
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" />
+          </svg>
+        </button>
+        {toolsOpen && (
+          <div className="absolute right-0 top-full z-40 mt-1 w-60 rounded-xl bg-desk-light p-1.5 shadow-lift ring-1 ring-desk-rule">
+            <ExportItem
+              label={t("tableRead")}
+              onClick={() => {
+                setToolsOpen(false);
+                props.onTableRead();
+              }}
+            />
+            <ToggleItem label={t("focusMode")} on={props.focusMode} onClick={() => props.setFocusMode(!props.focusMode)} />
+            <ToggleItem
+              label={t("surtitresShow")}
+              on={props.showAlt}
+              disabled={!props.hasAlt}
+              onClick={() => props.setShowAlt(!props.showAlt)}
+            />
+            <ExportItem
+              label={t("versions")}
+              onClick={() => {
+                setToolsOpen(false);
+                props.onPanel("versions");
+              }}
+            />
+          </div>
+        )}
+      </div>
+
       <ToolbarButton label={t("cast")} onClick={() => props.onPanel("cast")}>
         <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
       </ToolbarButton>
@@ -356,9 +461,12 @@ function EditorHeader(props: {
           </svg>
         </button>
         {props.exportOpen && (
-          <div className="absolute right-0 top-full z-40 mt-1 w-52 rounded-xl bg-desk-light p-1.5 shadow-lift ring-1 ring-desk-rule">
-            <ExportItem label={t("print")} onClick={() => props.onExport("print")} />
+          <div className="absolute right-0 top-full z-40 mt-1 w-56 rounded-xl bg-desk-light p-1.5 shadow-lift ring-1 ring-desk-rule">
+            <ExportItem label={t("printClean")} onClick={() => props.onExport("print-clean")} />
+            <ExportItem label={t("printTheatre")} onClick={() => props.onExport("print-theatre")} />
+            <div className="my-1 h-px bg-desk-rule" />
             <ExportItem label={t("plainText")} onClick={() => props.onExport("txt")} />
+            {props.hasAlt && <ExportItem label={t("surtitlesTxt")} onClick={() => props.onExport("surtitles")} />}
             <ExportItem label={t("jsonBackup")} onClick={() => props.onExport("json")} />
           </div>
         )}
@@ -398,6 +506,21 @@ function ExportItem({ label, onClick }: { label: string; onClick: () => void }) 
       className="block w-full rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-desk-rule"
     >
       {label}
+    </button>
+  );
+}
+
+function ToggleItem({ label, on, onClick, disabled }: { label: string; on: boolean; onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-white transition hover:bg-desk-rule disabled:opacity-40"
+    >
+      <span>{label}</span>
+      <span className={`flex h-4 w-7 items-center rounded-full px-0.5 transition-colors ${on ? "bg-gel" : "bg-desk-rule"}`}>
+        <span className={`h-3 w-3 rounded-full bg-white transition-transform ${on ? "translate-x-3" : ""}`} />
+      </span>
     </button>
   );
 }

@@ -44,6 +44,27 @@ export function buildBundle(play: Play): BundleItem[] {
  * language; character names are kept (proper nouns); everything else uses the map.
  * Any string the model didn't return falls back to the original — never dropped.
  */
+/**
+ * Attach a translation as a surtitle track on the SAME play: each cue/stage element
+ * keeps its id and gains an `alt` string. Ids are preserved so the two languages stay
+ * aligned line-for-line.
+ */
+export function applySurtitles(play: Play, altLang: Lang, translated: BundleItem[]): Play {
+  const map = new Map(translated.map((i) => [i.k, i.t]));
+  const elements = play.elements.map((el): Element => {
+    if (el.type === "cue") {
+      const alt = map.get(`cue:${el.id}`);
+      return alt ? { ...el, alt } : el;
+    }
+    if (el.type === "stage") {
+      const alt = map.get(`stage:${el.id}`);
+      return alt ? { ...el, alt } : el;
+    }
+    return el;
+  });
+  return { ...play, altLang, elements, updatedAt: Date.now() };
+}
+
 export function applyBundle(play: Play, to: Lang, translated: BundleItem[]): Play {
   const map = new Map(translated.map((i) => [i.k, i.t]));
   const get = (k: string, fallback: string | undefined): string | undefined => map.get(k) ?? fallback;

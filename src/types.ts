@@ -41,6 +41,8 @@ export interface SceneEl extends BaseEl {
 export interface StageEl extends BaseEl {
   type: "stage";
   text: string;
+  /** Other-language version, for surtitles / bilingual view. */
+  alt?: string;
 }
 
 /** Réplique — a character's spoken line, with an optional inline parenthetical (jeu). */
@@ -49,6 +51,8 @@ export interface CueEl extends BaseEl {
   characterId: string;
   parenthetical?: string;
   text: string;
+  /** Other-language version, for surtitles / bilingual view. */
+  alt?: string;
 }
 
 /** Action/narration that isn't a bracketed stage direction (used rarely). */
@@ -65,6 +69,7 @@ export interface Play {
   subtitle?: string;
   author: string;
   lang: Lang; // the primary language the play is written in
+  altLang?: Lang; // language of the surtitle track, if attached
   characters: CharacterT[];
   elements: Element[];
   createdAt: number;

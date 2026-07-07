@@ -125,6 +125,67 @@ export const STRINGS = {
   removeSceneHeading: { fr: "Retirer l'en-tête (garde les répliques)", en: "Remove heading (keep the lines)" },
   emptyScene: { fr: "Scène vide", en: "Empty scene" },
 
+  // — tools menu —
+  tools: { fr: "Outils", en: "Tools" },
+  tableRead: { fr: "Lecture à voix", en: "Table read" },
+  tableReadNoVoice: { fr: "La synthèse vocale n'est pas disponible dans ce navigateur.", en: "Speech synthesis isn't available in this browser." },
+  focusMode: { fr: "Mode focus", en: "Focus mode" },
+  surtitresShow: { fr: "Afficher les surtitres", en: "Show surtitles" },
+  versions: { fr: "Versions", en: "Versions" },
+  play: { fr: "Lire", en: "Play" },
+  pause: { fr: "Pause", en: "Pause" },
+  prev: { fr: "Précédent", en: "Previous" },
+  speed: { fr: "Vitesse", en: "Speed" },
+
+  // — versions —
+  saveVersion: { fr: "Enregistrer cette version", en: "Save this version" },
+  versionNamePlaceholder: { fr: "Nom de la version (ex. « 1er jet »)…", en: "Version name (e.g. “first draft”)…" },
+  noVersions: { fr: "Aucune version enregistrée. Fige un état pour y revenir plus tard.", en: "No versions saved. Snapshot a state to return to it later." },
+  restore: { fr: "Restaurer", en: "Restore" },
+  compare: { fr: "Comparer", en: "Compare" },
+  hideCompare: { fr: "Masquer", en: "Hide" },
+  diffVsCurrent: { fr: "Différences avec l'état actuel", en: "Changes vs. the current draft" },
+  restoreConfirm: { fr: "Restaurer cette version ? L'état actuel est remplacé (annulable avec ⌘Z).", en: "Restore this version? The current draft is replaced (undo with ⌘Z)." },
+  versionSaved: { fr: "Version enregistrée", en: "Version saved" },
+
+  // — import —
+  importText: { fr: "Importer un texte", en: "Import text" },
+  importDesc: { fr: "Colle une scène (NOM : réplique, ou format scénario). On la structure pour toi.", en: "Paste a scene (NAME: line, or screenplay format). We'll structure it." },
+  importPlaceholder: { fr: "ALICE : Tu es en retard.\nBRUNO : (essoufflé) Je sais.", en: "ALICE: You're late.\nBRUNO: (out of breath) I know." },
+  importAsNew: { fr: "Créer la pièce", en: "Create the play" },
+  importEmpty: { fr: "Colle d'abord un peu de texte.", en: "Paste some text first." },
+
+  // — sides / print / surtitles export —
+  sides: { fr: "Sides (rôle)", en: "Sides (role)" },
+  printClean: { fr: "Imprimer — épuré", en: "Print — clean" },
+  printTheatre: { fr: "Imprimer — théâtre (FR)", en: "Print — théâtre (FR)" },
+  surtitlesTxt: { fr: "Surtitres (.txt)", en: "Surtitles (.txt)" },
+
+  // — measures additions —
+  throughLine: { fr: "Fil de chaque personnage", en: "Each character's through-line" },
+  throughLineNote: { fr: "Densité de répliques, scène par scène.", en: "Line density, scene by scene." },
+  doubling: { fr: "Doublures possibles", en: "Possible doubling" },
+  doublingNote: { fr: "Rôles qui ne partagent jamais une scène — jouables par la même personne.", en: "Roles that never share a scene — playable by one actor." },
+  actor: { fr: "Comédien·ne", en: "Actor" },
+  doublingNone: { fr: "Chaque rôle partage une scène avec un autre — pas de doublure évidente.", en: "Every role shares a scene with another — no obvious doubling." },
+
+  // — Atelier voix / et si / retouche —
+  aiVoix: { fr: "Voix du personnage", en: "Character voice" },
+  aiVoixDesc: { fr: "Une lecture de la cohérence de voix d'un personnage, sur toutes ses répliques.", en: "A read of one character's voice consistency across all their lines." },
+  aiEtSi: { fr: "Et si…", en: "What if…" },
+  aiEtSiDesc: { fr: "Trois complications qui haussent l'enjeu de la scène — à essayer, pas à suivre.", en: "Three complications that raise the scene's stakes — to try, not to obey." },
+  aiForCharacter: { fr: "Quel personnage ?", en: "Which character?" },
+  aiStageWeighing: { fr: "je pèse les mots…", en: "weighing the words…" },
+  retouche: { fr: "Retoucher", en: "Polish" },
+  retoucheTighten: { fr: "Resserrer", en: "Tighten" },
+  retoucheAlternatives: { fr: "Variantes", en: "Alternatives" },
+  retoucheTactic: { fr: "Changer la tactique", en: "Change the tactic" },
+  retoucheReplace: { fr: "Remplacer", en: "Replace" },
+  retoucheApplied: { fr: "Réplique remplacée", en: "Line replaced" },
+  surtitresAttach: { fr: "Attacher comme surtitres", en: "Attach as surtitles" },
+  surtitresAttached: { fr: "Surtitres attachés", en: "Surtitles attached" },
+  surtitresOrNew: { fr: "…ou crée une pièce traduite séparée :", en: "…or create a separate translated play:" },
+
   // — misc —
   langOfPlay: { fr: "Langue de la pièce", en: "Play language" },
   interfaceLang: { fr: "Interface", en: "Interface" },

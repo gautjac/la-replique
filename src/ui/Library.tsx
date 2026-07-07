@@ -13,6 +13,7 @@ interface LibraryProps {
   onNewSample: () => void;
   onDelete: (id: string) => void;
   onImport: (file: File) => void;
+  onImportText: () => void;
 }
 
 export function Library(props: LibraryProps) {
@@ -55,6 +56,12 @@ export function Library(props: LibraryProps) {
           className="rounded-full bg-desk-light px-5 py-2.5 text-sm font-medium text-white ring-1 ring-desk-rule transition hover:bg-desk-rule"
         >
           {t("fromSample")}
+        </button>
+        <button
+          onClick={props.onImportText}
+          className="rounded-full bg-desk-light px-5 py-2.5 text-sm font-medium text-white ring-1 ring-desk-rule transition hover:bg-desk-rule"
+        >
+          {t("importText")}
         </button>
         <button
           onClick={() => fileRef.current?.click()}

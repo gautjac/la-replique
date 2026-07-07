@@ -80,12 +80,29 @@ body {
   background-clip: content-box;
 }
 
+/* Focus / typewriter mode — dim everything but the active line. */
+.focus-mode .el-row {
+  opacity: 0.26;
+  transition: opacity 0.25s ease;
+}
+.focus-mode .el-row.is-active {
+  opacity: 1;
+}
+
+/* Surtitle line under a cue (bilingual display). */
+.surtitle {
+  color: #6b7280;
+  border-left: 2px solid #cdd4de;
+  padding-left: 0.6rem;
+  margin-top: 0.15rem;
+}
+
 /* ————————————————————————————————————————————————
-   Print — the page becomes a clean stage manuscript.
+   Print — a dedicated PrintView renders the manuscript.
    ———————————————————————————————————————————————— */
 @media print {
   @page {
-    margin: 2.4cm 2.2cm;
+    margin: 2.2cm 2cm;
   }
   body {
     background: #fff !important;
@@ -97,18 +114,82 @@ body {
   .print-only {
     display: block !important;
   }
-  .print-sheet {
-    box-shadow: none !important;
-    margin: 0 !important;
-    max-width: none !important;
-    width: 100% !important;
-    background: #fff !important;
-    color: #000 !important;
-  }
-  .print-sheet * {
-    color: #000 !important;
-  }
 }
 .print-only {
   display: none;
+}
+
+/* Print typography shared */
+.print-doc {
+  color: #000;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 12pt;
+  line-height: 1.5;
+}
+.print-doc .p-title {
+  text-align: center;
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 20pt;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 6cm;
+}
+.print-doc .p-sub {
+  text-align: center;
+  margin-top: 0.3cm;
+}
+.print-doc .p-author {
+  text-align: center;
+  margin-top: 0.6cm;
+}
+.print-doc .p-pagebreak {
+  page-break-after: always;
+}
+.print-doc .p-act {
+  text-align: center;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  margin: 1.2em 0 0.6em;
+}
+.print-doc .p-scene {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 1em 0 0.2em;
+}
+.print-doc .p-setting {
+  color: #333;
+  margin-bottom: 0.4em;
+}
+.print-doc .p-stage {
+  color: #333;
+  margin: 0.35em 0 0.35em 1.5em;
+}
+.print-doc .p-cue-name {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 0.5em;
+}
+.print-doc .p-cue-text {
+  margin: 0 0 0.3em;
+}
+
+/* French théâtre convention: names centered, didascalies indented & italic */
+.print-doc.theatre .p-scene {
+  text-align: center;
+}
+.print-doc.theatre .p-cue-name {
+  text-align: center;
+  letter-spacing: 0.12em;
+}
+.print-doc.theatre .p-cue-text {
+  text-align: justify;
+}
+.print-doc.theatre .p-stage {
+  font-style: italic;
+  margin-left: 2.5em;
+  margin-right: 2.5em;
 }

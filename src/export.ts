@@ -131,7 +131,7 @@ function normalizeElement(e: unknown): Element | null {
       };
     }
     case "stage":
-      return { id, type: "stage", text: String(el.text ?? "") };
+      return { id, type: "stage", text: String(el.text ?? ""), alt: typeof el.alt === "string" ? el.alt : undefined };
     case "action":
       return { id, type: "action", text: String(el.text ?? "") };
     case "cue":
@@ -141,10 +141,117 @@ function normalizeElement(e: unknown): Element | null {
         characterId: String(el.characterId ?? ""),
         parenthetical: typeof el.parenthetical === "string" ? el.parenthetical : "",
         text: String(el.text ?? ""),
+        alt: typeof el.alt === "string" ? el.alt : undefined,
       };
     default:
       return null;
   }
+}
+
+/** Per-character "sides": their scenes, their lines in full, with cue-ins. */
+export function toSides(play: Play, characterId: string): string {
+  const char = characterById(play, characterId);
+  const out: string[] = [];
+  out.push(`${play.lang === "fr" ? "CÔTÉ" : "SIDES"} — ${(char?.name ?? "?").toUpperCase()}`);
+  out.push(play.title.toUpperCase());
+  out.push("");
+
+  const els = play.elements;
+  // group into scenes
+  let sceneHeader = "";
+  let printedHeaderFor = "";
+  for (let i = 0; i < els.length; i++) {
+    const el = els[i];
+    if (el.type === "act" || el.type === "scene") {
+      sceneHeader = el.type === "scene" ? el.label + (el.setting ? ` — ${el.setting}` : "") : el.label;
+      continue;
+    }
+    if (el.type === "cue" && el.characterId === characterId) {
+      if (sceneHeader && printedHeaderFor !== sceneHeader) {
+        out.push("");
+        out.push(sceneHeader.toUpperCase());
+        out.push("");
+        printedHeaderFor = sceneHeader;
+      }
+      // cue-in: the previous cue (a different speaker), last sentence only
+      const prev = [...els.slice(0, i)].reverse().find((e) => e.type === "cue");
+      if (prev && prev.type === "cue" && prev.characterId !== characterId) {
+        const pc = characterById(play, prev.characterId);
+        const cueIn = lastSentence(prev.text);
+        out.push(`   …${(pc?.name ?? "?").toUpperCase()}: ${cueIn}`);
+      }
+      const head = el.parenthetical ? `${(char?.name ?? "?").toUpperCase()}, ${el.parenthetical}` : (char?.name ?? "?").toUpperCase();
+      out.push(head);
+      out.push(el.text);
+      out.push("");
+    }
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
+function lastSentence(s: string): string {
+  const parts = s.trim().split(/(?<=[.!?…])\s+/);
+  return parts[parts.length - 1] || s.trim();
+}
+
+/** Numbered bilingual surtitle cue sheet (the conduite an operator advances by hand). */
+export function toSurtitles(play: Play): string {
+  const out: string[] = [];
+  out.push(`${play.title.toUpperCase()} — ${play.lang.toUpperCase()}${play.altLang ? " / " + play.altLang.toUpperCase() : ""}`);
+  out.push("");
+  let n = 0;
+  for (const el of play.elements) {
+    if (el.type === "cue") {
+      n += 1;
+      const c = characterById(play, el.characterId);
+      out.push(`${n}. ${(c?.name ?? "?").toUpperCase()}`);
+      out.push(el.text);
+      if (el.alt) out.push(el.alt);
+      out.push("");
+    } else if (el.type === "scene") {
+      out.push(`— ${el.label} —`);
+      out.push("");
+    }
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trimEnd() + "\n";
+}
+
+export interface DiffLine {
+  type: "same" | "add" | "del";
+  text: string;
+}
+
+/** A simple LCS line diff between two script renderings (for version compare). */
+export function linesDiff(aText: string, bText: string): DiffLine[] {
+  const a = aText.split("\n");
+  const b = bText.split("\n");
+  const n = a.length;
+  const m = b.length;
+  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const out: DiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (a[i] === b[j]) {
+      out.push({ type: "same", text: a[i] });
+      i++;
+      j++;
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      out.push({ type: "del", text: a[i] });
+      i++;
+    } else {
+      out.push({ type: "add", text: b[j] });
+      j++;
+    }
+  }
+  while (i < n) out.push({ type: "del", text: a[i++] });
+  while (j < m) out.push({ type: "add", text: b[j++] });
+  return out;
 }
 
 export function downloadText(filename: string, text: string, mime = "text/plain"): void {

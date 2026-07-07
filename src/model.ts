@@ -1,5 +1,7 @@
 // Pure, framework-free helpers over the play model. Everything here is unit-tested.
 import type {
+  ActEl,
+  BeatKind,
   CharacterT,
   CueEl,
   Element,
@@ -298,6 +300,191 @@ export function sceneRange(play: Play, atIndex: number): { start: number; end: n
 export function sceneElements(play: Play, atIndex: number): Element[] {
   const { start, end } = sceneRange(play, atIndex);
   return play.elements.slice(start, end);
+}
+
+// ————————————————————————————————————————————————————————————————
+// Timeline ribbon — one segment per scene, width ∝ spoken words.
+// ————————————————————————————————————————————————————————————————
+export interface TimelineSegment {
+  sceneId: string;
+  label: string;
+  actLabel: string | null;
+  beat?: BeatKind;
+  words: number;
+  fraction: number; // share of the whole play's spoken words (min floor for visibility)
+}
+
+export function timelineSegments(play: Play): TimelineSegment[] {
+  const { blocks } = decompose(play);
+  const segs: TimelineSegment[] = [];
+  let currentAct: string | null = null;
+  const raw: { sceneId: string; label: string; actLabel: string | null; beat?: BeatKind; words: number }[] = [];
+  for (const b of blocks) {
+    if (b.kind === "act") {
+      currentAct = (b.els[0] as ActEl).label;
+    } else {
+      const scene = b.els[0] as SceneEl;
+      raw.push({ sceneId: scene.id, label: scene.label, actLabel: currentAct, beat: scene.beat, words: elementStats(b.els).words });
+    }
+  }
+  const total = raw.reduce((a, r) => a + Math.max(r.words, 1), 0) || 1;
+  for (const r of raw) {
+    segs.push({ ...r, fraction: Math.max(r.words, 1) / total });
+  }
+  return segs;
+}
+
+// ————————————————————————————————————————————————————————————————
+// Character through-line — line counts per character per scene.
+// ————————————————————————————————————————————————————————————————
+export interface ThroughLine {
+  character: CharacterT;
+  perScene: number[]; // line count in each scene (in order)
+  max: number;
+}
+
+export function throughLines(play: Play): { scenes: string[]; lines: ThroughLine[] } {
+  const grid = presenceGrid(play);
+  const scenes = grid.segments.filter((s) => s.scene);
+  const counts = new Map<string, number[]>();
+  play.characters.forEach((c) => counts.set(c.id, new Array(scenes.length).fill(0)));
+
+  scenes.forEach((seg, i) => {
+    // recompute per-scene cue counts by walking the scene's elements
+    const els = sceneElements(play, play.elements.findIndex((e) => e.id === seg.scene!.id));
+    for (const el of els) {
+      if (el.type === "cue" && el.characterId) {
+        const arr = counts.get(el.characterId);
+        if (arr) arr[i] += 1;
+      }
+    }
+  });
+
+  const lines: ThroughLine[] = play.characters.map((c) => {
+    const perScene = counts.get(c.id) ?? [];
+    return { character: c, perScene, max: perScene.reduce((a, b) => Math.max(a, b), 0) };
+  });
+  return { scenes: scenes.map((s) => s.scene!.label), lines };
+}
+
+// ————————————————————————————————————————————————————————————————
+// Doubling — which roles can be played by one actor (never share a scene).
+// ————————————————————————————————————————————————————————————————
+export interface DoublingGroup {
+  characterIds: string[];
+}
+
+/** Greedy grouping: two roles can double if they never appear in the same scene. */
+export function doublingSuggestion(play: Play): DoublingGroup[] {
+  const grid = presenceGrid(play);
+  const scenes = grid.segments.filter((s) => s.characterIds.size > 0);
+  // conflict = share at least one scene
+  const conflict = new Map<string, Set<string>>();
+  play.characters.forEach((c) => conflict.set(c.id, new Set()));
+  for (const seg of scenes) {
+    const ids = [...seg.characterIds];
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        conflict.get(ids[i])?.add(ids[j]);
+        conflict.get(ids[j])?.add(ids[i]);
+      }
+    }
+  }
+  // order by scene-count desc (busiest roles first — they anchor groups)
+  const busy = new Map<string, number>();
+  for (const seg of scenes) for (const id of seg.characterIds) busy.set(id, (busy.get(id) ?? 0) + 1);
+  const order = play.characters
+    .filter((c) => (busy.get(c.id) ?? 0) > 0)
+    .sort((a, b) => (busy.get(b.id) ?? 0) - (busy.get(a.id) ?? 0));
+
+  const groups: DoublingGroup[] = [];
+  for (const c of order) {
+    let placed = false;
+    for (const g of groups) {
+      if (g.characterIds.every((id) => !conflict.get(c.id)?.has(id))) {
+        g.characterIds.push(c.id);
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) groups.push({ characterIds: [c.id] });
+  }
+  return groups;
+}
+
+// ————————————————————————————————————————————————————————————————
+// Import — parse a pasted "NAME: line" / screenplay-ish scene into elements.
+// ————————————————————————————————————————————————————————————————
+export function parseScript(text: string, lang: Lang): { characters: CharacterT[]; elements: Element[] } {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const characters: CharacterT[] = [];
+  const elements: Element[] = [];
+  const nameToId = new Map<string, string>();
+
+  const ensureChar = (name: string): string => {
+    const key = name.trim().toLowerCase();
+    const existing = nameToId.get(key);
+    if (existing) return existing;
+    const c = makeCharacter(name.trim().toUpperCase(), characters);
+    characters.push(c);
+    nameToId.set(key, c.id);
+    return c.id;
+  };
+
+  let sawScene = false;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+
+    // Scene/act headings
+    if (/^(acte?|act)\b/i.test(line)) {
+      elements.push({ id: uid(), type: "act", label: line.toUpperCase() });
+      continue;
+    }
+    if (/^(sc[eè]ne|scene|int\.|ext\.)\b/i.test(line)) {
+      elements.push({ id: uid(), type: "scene", label: line.toUpperCase(), setting: "" });
+      sawScene = true;
+      continue;
+    }
+    // Stage direction: fully parenthesised or bracketed line
+    if (/^[([].*[)\]]$/.test(line)) {
+      elements.push({ id: uid(), type: "stage", text: line.replace(/^[([]|[)\]]$/g, "").trim() });
+      continue;
+    }
+    // NAME: line  → cue
+    const m = line.match(/^([\p{Lu}][\p{L}'’.\- ]{0,28}?)\s*[:：]\s*(.+)$/u);
+    if (m && m[1].trim().length >= 2) {
+      let name = m[1].trim();
+      let rest = m[2].trim();
+      // inline parenthetical at start: NAME: (jeu) text
+      let parenthetical = "";
+      const pm = rest.match(/^\(([^)]*)\)\s*(.*)$/);
+      if (pm) {
+        parenthetical = pm[1].trim();
+        rest = pm[2].trim();
+      }
+      elements.push({ id: uid(), type: "cue", characterId: ensureChar(name), text: rest, parenthetical });
+      continue;
+    }
+    // ALL-CAPS lone line → treat as a character cue heading; next line becomes their text
+    if (/^[\p{Lu}][\p{Lu}'’.\- ]{1,28}$/u.test(line) && line.length <= 30) {
+      elements.push({ id: uid(), type: "cue", characterId: ensureChar(line), text: "", parenthetical: "" });
+      continue;
+    }
+    // Otherwise: dialogue continuation of the last cue, else an action line
+    const last = elements[elements.length - 1];
+    if (last && last.type === "cue") {
+      last.text = last.text ? last.text + " " + line : line;
+    } else {
+      elements.push({ id: uid(), type: "action", text: line });
+    }
+  }
+
+  // If nothing looked like a scene, wrap in a default scene heading for structure.
+  if (!sawScene && elements.length > 0) {
+    elements.unshift({ id: uid(), type: "scene", label: sceneLabel(1, lang), setting: "" });
+  }
+  return { characters, elements };
 }
 
 export function formatRuntime(minutes: number, lang: Lang): string {

@@ -1,5 +1,5 @@
 import { useUI } from "../i18n";
-import { castStats, formatRuntime, presenceGrid } from "../model";
+import { castStats, characterById, doublingSuggestion, formatRuntime, presenceGrid, throughLines } from "../model";
 import type { Play } from "../types";
 
 export function Measures({ play }: { play: Play }) {
@@ -77,6 +77,90 @@ export function Measures({ play }: { play: Play }) {
           </div>
         )}
       </div>
+
+      <ThroughLineSection play={play} />
+      <DoublingSection play={play} />
+    </div>
+  );
+}
+
+function ThroughLineSection({ play }: { play: Play }) {
+  const { t } = useUI();
+  const { scenes, lines } = throughLines(play);
+  if (scenes.length === 0 || play.characters.length === 0) return null;
+  const globalMax = Math.max(1, ...lines.map((l) => l.max));
+
+  return (
+    <div>
+      <h3 className="mb-1 font-display text-sm font-semibold text-white">{t("throughLine")}</h3>
+      <p className="mb-3 text-xs text-ink-faint">{t("throughLineNote")}</p>
+      <div className="space-y-2.5">
+        {lines.map((l) => (
+          <div key={l.character.id}>
+            <div className="mb-1 flex items-center gap-1.5 text-xs">
+              <span className="h-2 w-2 rounded-full" style={{ background: l.character.color }} />
+              <span className="font-display font-semibold uppercase tracking-wide text-white">{l.character.name}</span>
+            </div>
+            <div className="flex h-8 items-end gap-0.5">
+              {l.perScene.map((n, i) => (
+                <div
+                  key={i}
+                  className="flex-1 rounded-sm"
+                  style={{
+                    height: `${Math.max((n / globalMax) * 100, n > 0 ? 12 : 4)}%`,
+                    background: n > 0 ? l.character.color : "#2b3140",
+                    opacity: n > 0 ? 0.85 : 1,
+                  }}
+                  title={`${scenes[i]}: ${n}`}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DoublingSection({ play }: { play: Play }) {
+  const { t, locale } = useUI();
+  const groups = doublingSuggestion(play).filter((g) => g.characterIds.length > 0);
+  if (play.characters.length < 2 || groups.length === 0) return null;
+  const doublings = groups.filter((g) => g.characterIds.length > 1);
+
+  return (
+    <div>
+      <h3 className="mb-1 font-display text-sm font-semibold text-white">{t("doubling")}</h3>
+      <p className="mb-3 text-xs text-ink-faint">{t("doublingNote")}</p>
+      {doublings.length === 0 ? (
+        <p className="rounded-lg bg-desk p-3 text-xs text-ink-faint ring-1 ring-desk-rule">{t("doublingNone")}</p>
+      ) : (
+        <ul className="space-y-2">
+          {groups.map((g, i) => (
+            <li key={i} className="flex items-center gap-2 rounded-xl bg-desk p-3 ring-1 ring-desk-rule">
+              <span className="whitespace-nowrap text-xs text-ink-faint">
+                {t("actor")} {i + 1}
+              </span>
+              <span className="flex flex-wrap items-center gap-1.5">
+                {g.characterIds.map((id, j) => {
+                  const c = characterById(play, id);
+                  return (
+                    <span key={id} className="flex items-center gap-1">
+                      {j > 0 && <span className="text-ink-faint">+</span>}
+                      <span className="h-2 w-2 rounded-full" style={{ background: c?.color }} />
+                      <span className="font-display text-xs font-semibold uppercase tracking-wide text-white">{c?.name}</span>
+                    </span>
+                  );
+                })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-2 text-xs text-ink-faint">
+        {groups.length} {locale === "fr" ? (groups.length === 1 ? "comédien·ne" : "comédien·ne·s") : groups.length === 1 ? "actor" : "actors"} · {play.characters.length}{" "}
+        {locale === "fr" ? "rôles" : "roles"}
+      </p>
     </div>
   );
 }

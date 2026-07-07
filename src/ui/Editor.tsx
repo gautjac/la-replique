@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
+import { atelier, type RetoucheMode, type RetoucheRes } from "../api";
+import { elementsToScript } from "../export";
 import { useUI } from "../i18n";
-import { alternateSpeaker, characterById, cycleType, findCharacterByName, makeCharacter } from "../model";
+import { alternateSpeaker, characterById, cycleType, findCharacterByName, makeCharacter, sceneElements } from "../model";
 import {
   addCharacterTo,
   convertElement,
@@ -17,6 +19,8 @@ interface EditorProps {
   commit: (next: Play) => void;
   jumpTargetId?: string | null;
   onJumped?: () => void;
+  focusMode?: boolean;
+  showAlt?: boolean;
 }
 
 interface FocusReq {
@@ -24,10 +28,11 @@ interface FocusReq {
   at: number; // nonce so repeated focus of same id still fires
 }
 
-export function Editor({ play, commit, jumpTargetId, onJumped }: EditorProps) {
+export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAlt }: EditorProps) {
   const { t } = useUI();
   const fieldRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const [focusReq, setFocusReq] = useState<FocusReq | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   // Scroll to a scene when arriving from the beat board.
   useEffect(() => {
@@ -120,17 +125,10 @@ export function Editor({ play, commit, jumpTargetId, onJumped }: EditorProps) {
   };
 
   return (
-    <div className="mx-auto w-full max-w-[52rem] px-4 pb-40 pt-8 sm:px-8">
+    <div className="no-print mx-auto w-full max-w-[52rem] px-4 pb-40 pt-8 sm:px-8">
       <TitleBlock play={play} commit={commit} />
 
-      <div className="print-sheet script mt-6 rounded-xl bg-paper px-6 py-8 text-ink shadow-page sm:px-12 sm:py-12">
-        {/* Print-only title block */}
-        <div className="print-only mb-8 text-center">
-          <div className="text-2xl font-semibold uppercase tracking-wide">{play.title}</div>
-          {play.subtitle && <div className="mt-1 text-ink-soft">{play.subtitle}</div>}
-          {play.author && <div className="mt-2 text-sm text-ink-soft">{(play.lang === "fr" ? "de " : "by ") + play.author}</div>}
-        </div>
-
+      <div className={`script mt-6 rounded-xl bg-paper px-6 py-8 text-ink shadow-page sm:px-12 sm:py-12 ${focusMode ? "focus-mode" : ""}`}>
         {play.elements.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-ink-soft">{t("emptyScript")}</p>
@@ -157,6 +155,9 @@ export function Editor({ play, commit, jumpTargetId, onJumped }: EditorProps) {
                 addCharacter={addCharacter}
                 renameCharacter={(cid, name) => commit(updateCharacter(play, cid, { name }))}
                 speakerTypeAhead={speakerTypeAhead}
+                activeId={activeId}
+                onActivate={setActiveId}
+                showAlt={showAlt}
               />
             ))}
           </div>
@@ -209,6 +210,15 @@ interface RowProps {
   addCharacter: (name: string) => string;
   renameCharacter: (id: string, name: string) => void;
   speakerTypeAhead: (elId: string, token: string, allowCreate: boolean) => boolean;
+  activeId: string | null;
+  onActivate: (id: string) => void;
+  showAlt?: boolean;
+}
+
+/** The wrapping class for each element row — drives focus-mode dimming. */
+function rowClass(props: RowProps, extra: string): string {
+  const active = props.activeId === props.el.id;
+  return `el-row ${active ? "is-active" : ""} ${extra}`;
 }
 
 /** Enter / Tab / Backspace-on-empty. Shared by every element field. */
@@ -246,10 +256,11 @@ function ElementRow(props: RowProps) {
 
   if (el.type === "act") {
     return (
-      <div data-elid={el.id} className="my-8 flex items-center gap-3">
+      <div data-elid={el.id} className={rowClass(props, "my-8 flex items-center gap-3")}>
         <span className="h-px flex-1 bg-paper-edge" />
         <input
           value={el.label}
+          onFocus={() => props.onActivate(el.id)}
           onChange={(e) => props.setText(el.id, { label: e.target.value.toUpperCase() } as Partial<Element>)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -270,9 +281,10 @@ function ElementRow(props: RowProps) {
 
   if (el.type === "scene") {
     return (
-      <div data-elid={el.id} className="mb-4 mt-7">
+      <div data-elid={el.id} className={rowClass(props, "mb-4 mt-7")}>
         <input
           value={el.label}
+          onFocus={() => props.onActivate(el.id)}
           onChange={(e) => props.setText(el.id, { label: e.target.value.toUpperCase() } as Partial<Element>)}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
@@ -288,6 +300,7 @@ function ElementRow(props: RowProps) {
         />
         <input
           value={el.setting ?? ""}
+          onFocus={() => props.onActivate(el.id)}
           onChange={(e) => props.setText(el.id, { setting: e.target.value } as Partial<Element>)}
           placeholder={t("settingPlaceholder")}
           className="mt-1 block w-full bg-transparent text-sm text-ink-soft outline-none placeholder:text-ink-faint"
@@ -298,26 +311,29 @@ function ElementRow(props: RowProps) {
 
   if (el.type === "stage") {
     return (
-      <div className="script my-3 border-l-2 border-gel/50 pl-4">
+      <div className={rowClass(props, "script my-3 border-l-2 border-gel/50 pl-4")}>
         <AutoTextarea
           ref={(n) => props.register(el.id, n)}
           value={el.text}
+          onFocus={() => props.onActivate(el.id)}
           onChange={(e) => props.setText(el.id, { text: e.target.value } as Partial<Element>)}
           onKeyDown={(e) => structural(e, props, "stage", el.text)}
           placeholder={t("stagePlaceholder")}
           className="text-[15px] text-ink-soft"
           aria-label={t("elStage")}
         />
+        {props.showAlt && el.alt && <div className="surtitle text-[14px]">{el.alt}</div>}
       </div>
     );
   }
 
   if (el.type === "action") {
     return (
-      <div className="script my-3">
+      <div className={rowClass(props, "script my-3")}>
         <AutoTextarea
           ref={(n) => props.register(el.id, n)}
           value={el.text}
+          onFocus={() => props.onActivate(el.id)}
           onChange={(e) => props.setText(el.id, { text: e.target.value } as Partial<Element>)}
           onKeyDown={(e) => structural(e, props, "action", el.text)}
           placeholder={t("actionPlaceholder")}
@@ -332,7 +348,7 @@ function ElementRow(props: RowProps) {
   const character = characterById(props.play, el.characterId);
   const hasParen = (el.parenthetical ?? "").length > 0;
   return (
-    <div className="script group mb-3.5" style={{ ["--cue-color" as string]: character?.color ?? "#8b93a4" }}>
+    <div className={rowClass(props, "script group mb-3.5")} style={{ ["--cue-color" as string]: character?.color ?? "#8b93a4" }}>
       <div className="flex items-center gap-2">
         <CuePicker {...props} el={el} />
         <input
@@ -344,16 +360,126 @@ function ElementRow(props: RowProps) {
           }`}
           aria-label={t("parenthetical")}
         />
+        {el.text.trim() && character && <RetouchePopover play={props.play} el={el} characterName={character.name} onReplace={(text) => props.setText(el.id, { text } as Partial<Element>)} />}
       </div>
       <AutoTextarea
         ref={(n) => props.register(el.id, n)}
         value={el.text}
+        onFocus={() => props.onActivate(el.id)}
         onChange={(e) => props.setText(el.id, { text: e.target.value } as Partial<Element>)}
         onKeyDown={(e) => cueKeyDown(e, props)}
         placeholder={t("cuePlaceholder")}
         className="mt-0.5 text-[17px] leading-relaxed text-ink"
         aria-label={t("elCue")}
       />
+      {props.showAlt && el.alt && <div className="surtitle text-[15px]">{el.alt}</div>}
+    </div>
+  );
+}
+
+function RetouchePopover({
+  play,
+  el,
+  characterName,
+  onReplace,
+}: {
+  play: Play;
+  el: CueEl;
+  characterName: string;
+  onReplace: (text: string) => void;
+}) {
+  const { t } = useUI();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [variants, setVariants] = useState<RetoucheRes["variants"] | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+        setVariants(null);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  const run = async (mode: RetoucheMode) => {
+    setBusy(true);
+    setVariants(null);
+    try {
+      const idx = play.elements.findIndex((e) => e.id === el.id);
+      const scene = elementsToScript(play, sceneElements(play, idx < 0 ? 0 : idx));
+      const res = await atelier<RetoucheRes>({ op: "retoucher", lang: play.lang, scene, characterName, line: el.text, mode });
+      setVariants(res.variants);
+    } catch {
+      setVariants([]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title={t("retouche")}
+        aria-label={t("retouche")}
+        className={`rounded-md p-1 text-gel transition ${open ? "opacity-100" : "opacity-0 focus:opacity-100 group-hover:opacity-100"} hover:bg-gel/10`}
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+          <path d="M12 2l1.6 4.4L18 8l-4.4 1.6L12 14l-1.6-4.4L6 8l4.4-1.6z" />
+          <path d="M18 13l.8 2.2L21 16l-2.2.8L18 19l-.8-2.2L15 16l2.2-.8z" />
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-30 mt-1 w-72 rounded-xl bg-white p-2 text-ink shadow-lift ring-1 ring-paper-edge">
+          {!variants && !busy && (
+            <div className="flex flex-col">
+              {(["tighten", "alternatives", "tactic"] as RetoucheMode[]).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => run(m)}
+                  className="rounded-lg px-2.5 py-2 text-left text-sm text-ink hover:bg-paper-shade"
+                >
+                  {t(m === "tighten" ? "retoucheTighten" : m === "alternatives" ? "retoucheAlternatives" : "retoucheTactic")}
+                </button>
+              ))}
+            </div>
+          )}
+          {busy && (
+            <div className="flex items-center gap-2 px-2.5 py-3 text-sm text-ink-soft">
+              <span className="h-3 w-3 animate-spin rounded-full border-2 border-gel border-t-transparent" />
+              {t("aiStageWriting")}
+            </div>
+          )}
+          {variants && (
+            <div className="space-y-1.5">
+              {variants.length === 0 && <p className="px-2 py-2 text-sm text-ink-faint">{t("aiError")}</p>}
+              {variants.map((v, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    onReplace(v.text);
+                    setOpen(false);
+                    setVariants(null);
+                  }}
+                  className="block w-full rounded-lg bg-paper-shade px-2.5 py-2 text-left hover:bg-paper-edge"
+                >
+                  <span className="text-[15px] text-ink">{v.text}</span>
+                  {v.note && <span className="mt-0.5 block text-xs text-gel-deep">→ {v.note}</span>}
+                </button>
+              ))}
+              <button onClick={() => setVariants(null)} className="w-full rounded-lg px-2 py-1.5 text-xs text-ink-faint hover:text-ink">
+                ←
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
