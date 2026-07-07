@@ -54,6 +54,9 @@ export const STRINGS = {
   characterName: { fr: "Nom", en: "Name" },
   characterNote: { fr: "Qui est-ce ? (facultatif)", en: "Who are they? (optional)" },
   noCast: { fr: "Aucun personnage pour l'instant.", en: "No characters yet." },
+  voiceFor: { fr: "Voix (lecture à voix)", en: "Voice (table read)" },
+  voiceAuto: { fr: "Voix automatique", en: "Automatic voice" },
+  voicePreview: { fr: "Écouter cette voix", en: "Preview this voice" },
   lines: { fr: "répliques", en: "lines" },
   scenesIn: { fr: "scènes", en: "scenes" },
   renameCharacterEverywhere: { fr: "Renommer partout", en: "Rename everywhere" },
@@ -157,6 +160,11 @@ export const STRINGS = {
   importPlaceholder: { fr: "ALICE : Tu es en retard.\nBRUNO : (essoufflé) Je sais.", en: "ALICE: You're late.\nBRUNO: (out of breath) I know." },
   importAsNew: { fr: "Créer la pièce", en: "Create the play" },
   importEmpty: { fr: "Colle d'abord un peu de texte.", en: "Paste some text first." },
+  importBadJson: { fr: "Ce JSON n'est pas valide. Vérifie le format ou colle du texte simple.", en: "That JSON isn't valid. Check the format, or paste plain text." },
+  importFormats: { fr: "Accepte : texte simple (NOM : réplique) ou le JSON « la-replique/1 ».", en: "Accepts: plain text (NAME: line) or the “la-replique/1” JSON." },
+  copyAiPrompt: { fr: "Copier le prompt IA", en: "Copy AI prompt" },
+  copyAiPromptHint: { fr: "Copie un prompt à donner à un modèle IA pour qu'il écrive une pièce importable ici.", en: "Copies a prompt to give an AI model so it writes a play importable here." },
+  copied: { fr: "Copié ✓", en: "Copied ✓" },
 
   // — sides / print / surtitles export —
   sides: { fr: "Sides (rôle)", en: "Sides (role)" },

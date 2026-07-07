@@ -5,7 +5,7 @@ import {
   throughLines,
   timelineSegments,
 } from "./model";
-import { linesDiff, toSides, toSurtitles } from "./export";
+import { fromJSON, linesDiff, toSides, toSurtitles } from "./export";
 import { applySurtitles, buildBundle } from "./translate";
 import { samplePlay } from "./model";
 import type { CueEl, Play } from "./types";
@@ -116,6 +116,59 @@ describe("surtitles", () => {
     const sheet = toSurtitles(applySurtitles(play, "en", bundle));
     expect(sheet).toMatch(/1\. BRUNO/);
     expect(sheet).toContain("EN:Un deux trois.");
+  });
+});
+
+describe("AI-friendly JSON import (fromJSON)", () => {
+  it("links cues to characters by NAME and auto-creates missing ones", () => {
+    const doc = JSON.stringify({
+      lang: "fr",
+      title: "Test",
+      elements: [
+        { type: "scene", label: "SCÈNE 1" },
+        { type: "cue", character: "ALICE", text: "Bonjour." },
+        { type: "cue", character: "BRUNO", parenthetical: "sec", text: "Salut." },
+        { type: "cue", character: "ALICE", text: "Ça va ?" },
+      ],
+    });
+    const play = fromJSON(doc);
+    expect(play.characters.map((c) => c.name).sort()).toEqual(["ALICE", "BRUNO"]);
+    const cues = play.elements.filter((e) => e.type === "cue") as CueEl[];
+    // both ALICE cues resolve to the SAME character id
+    expect(cues[0].characterId).toBe(cues[2].characterId);
+    expect(cues[1].parenthetical).toBe("sec");
+    // every cue is linked to a real character
+    for (const c of cues) expect(play.characters.some((ch) => ch.id === c.characterId)).toBe(true);
+  });
+
+  it("honours an explicit characters list (by name) and gives them colours", () => {
+    const doc = JSON.stringify({
+      lang: "en",
+      characters: [{ name: "MARIE", note: "the witness" }],
+      elements: [{ type: "cue", character: "MARIE", text: "I saw it." }],
+    });
+    const play = fromJSON(doc);
+    expect(play.characters).toHaveLength(1);
+    expect(play.characters[0].note).toBe("the witness");
+    expect(play.characters[0].color).toMatch(/^#/);
+    expect((play.elements[0] as CueEl).characterId).toBe(play.characters[0].id);
+  });
+
+  it("accepts a minimal document", () => {
+    const play = fromJSON('{ "lang": "en", "elements": [ { "type": "cue", "character": "A", "text": "Hi." } ] }');
+    expect(play.characters.map((c) => c.name)).toEqual(["A"]);
+    expect(play.elements.filter((e) => e.type === "cue")).toHaveLength(1);
+  });
+
+  it("preserves an explicit voiceId on a character", () => {
+    const doc = JSON.stringify({
+      lang: "fr",
+      characters: [{ id: "x", name: "ALICE", color: "#4f7cff", voiceId: "voice-123" }],
+      elements: [{ type: "cue", characterId: "x", text: "Allô." }],
+    });
+    const play = fromJSON(doc);
+    expect(play.characters[0].voiceId).toBe("voice-123");
+    expect((play.elements[0] as CueEl).characterId).toBe(play.characters[0].id);
   });
 });
 

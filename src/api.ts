@@ -3,21 +3,40 @@
 
 export type AtelierOp = "relance" | "dramaturgie" | "traduire" | "retoucher" | "voix" | "etsi";
 
+export interface ElevenVoice {
+  id: string;
+  name: string;
+  gender?: string;
+  accent?: string;
+  description?: string;
+  category?: string;
+}
+
+/** List the account's ElevenLabs voices. null = no key configured. */
+export async function fetchVoices(signal?: AbortSignal): Promise<ElevenVoice[] | null> {
+  const resp = await fetch("/api/voices", { signal });
+  if (resp.status === 503) return null;
+  if (!resp.ok) throw new Error(`voices ${resp.status}`);
+  const data = (await resp.json()) as { voices?: ElevenVoice[] };
+  return data.voices ?? [];
+}
+
+export interface TtsOpts {
+  voiceId?: string; // explicit chosen voice
+  voiceIndex: number; // fallback rotation index
+  narrator: boolean;
+}
+
 /**
  * Fetch ElevenLabs speech for a line. Returns an audio Blob, or `null` when the
  * server has no ElevenLabs key configured (so the caller falls back to OS voices).
  * Throws on other failures.
  */
-export async function ttsFetch(
-  text: string,
-  voiceIndex: number,
-  narrator: boolean,
-  signal?: AbortSignal,
-): Promise<Blob | null> {
+export async function ttsFetch(text: string, opts: TtsOpts, signal?: AbortSignal): Promise<Blob | null> {
   const resp = await fetch("/api/tts", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ text, voiceIndex, narrator }),
+    body: JSON.stringify({ text, voiceId: opts.voiceId, voiceIndex: opts.voiceIndex, narrator: opts.narrator }),
     signal,
   });
   if (resp.status === 503) return null; // no key configured

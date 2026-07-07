@@ -16,6 +16,7 @@ const NARRATOR = "onwK4e9ZLuTAKqWW03F9"; // Daniel — a calm, neutral narrator
 
 interface Body {
   text?: string;
+  voiceId?: string; // explicit chosen voice — wins over the index rotation
   voiceIndex?: number;
   narrator?: boolean;
 }
@@ -40,7 +41,12 @@ export default async (req: Request, _context: Context) => {
   if (!text) return json({ error: "Empty text" }, 400);
   if (text.length > 800) return json({ error: "Text too long" }, 400);
 
-  const voiceId = body.narrator ? NARRATOR : VOICES[Math.abs(body.voiceIndex ?? 0) % VOICES.length];
+  const voiceId =
+    typeof body.voiceId === "string" && body.voiceId.trim()
+      ? body.voiceId.trim()
+      : body.narrator
+        ? NARRATOR
+        : VOICES[Math.abs(body.voiceIndex ?? 0) % VOICES.length];
 
   try {
     const resp = await fetch(

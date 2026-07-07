@@ -1,6 +1,6 @@
 // Export / import. Pure string functions (tested); the download helper is browser-only.
-import { characterById, uid } from "./model";
-import type { CharacterT, Element, Play, SceneEl } from "./types";
+import { characterById, nextCharacterColor, uid } from "./model";
+import type { CharacterT, Element, Lang, Play, SceneEl } from "./types";
 
 export function slugify(s: string): string {
   const base = s
@@ -77,33 +77,66 @@ export function toJSON(play: Play): string {
 export function fromJSON(text: string): Play {
   const data = JSON.parse(text);
   const raw = data?.play ?? data;
-  if (!raw || typeof raw !== "object") throw new Error("Not a La Réplique backup");
-  if (!Array.isArray(raw.elements) || !Array.isArray(raw.characters)) {
-    throw new Error("Missing elements or characters");
+  if (!raw || typeof raw !== "object") throw new Error("Not a La Réplique document");
+  if (!Array.isArray(raw.elements)) throw new Error("Missing elements");
+
+  const lang: Lang = raw.lang === "en" ? "en" : "fr";
+
+  // Characters may be listed explicitly (backup) or omitted (AI docs that name
+  // speakers inline). Build lookup by id and by name; create on demand.
+  const characters: CharacterT[] = [];
+  const byId = new Map<string, CharacterT>();
+  const byName = new Map<string, CharacterT>();
+  const addChar = (c: CharacterT) => {
+    characters.push(c);
+    byId.set(c.id, c);
+    byName.set(c.name.trim().toLowerCase(), c);
+  };
+
+  if (Array.isArray(raw.characters)) {
+    for (const c of raw.characters) {
+      const cc = c as Partial<CharacterT> & Record<string, unknown>;
+      addChar({
+        id: typeof cc.id === "string" ? cc.id : uid(),
+        name: String(cc.name ?? "?"),
+        color: typeof cc.color === "string" ? cc.color : nextCharacterColor(characters),
+        note: typeof cc.note === "string" ? cc.note : undefined,
+        voiceId: typeof cc.voiceId === "string" ? cc.voiceId : undefined,
+      });
+    }
   }
 
-  const characters: CharacterT[] = raw.characters.map((c: unknown) => {
-    const cc = c as Partial<CharacterT>;
-    return {
-      id: typeof cc.id === "string" ? cc.id : uid(),
-      name: String(cc.name ?? "?"),
-      color: typeof cc.color === "string" ? cc.color : "#4f7cff",
-      note: typeof cc.note === "string" ? cc.note : undefined,
-    };
-  });
+  // Resolve a cue's speaker to a character id. Backups carry a matching
+  // characterId; AI docs carry a `character`/`speaker` NAME instead.
+  const resolveSpeaker = (el: Record<string, unknown>): string => {
+    const cid = typeof el.characterId === "string" ? el.characterId : "";
+    if (cid && byId.has(cid)) return cid;
+    const nameRef =
+      typeof el.character === "string" ? el.character.trim() : typeof el.speaker === "string" ? el.speaker.trim() : "";
+    if (nameRef) {
+      const existing = byName.get(nameRef.toLowerCase());
+      if (existing) return existing.id;
+      const created: CharacterT = { id: uid(), name: nameRef.toUpperCase(), color: nextCharacterColor(characters) };
+      addChar(created);
+      return created.id;
+    }
+    return cid;
+  };
 
-  const elements: Element[] = raw.elements
-    .map((e: unknown) => normalizeElement(e))
-    .filter((e: Element | null): e is Element => e !== null);
+  const elements: Element[] = [];
+  for (const e of raw.elements) {
+    const el = normalizeElement(e, resolveSpeaker);
+    if (el) elements.push(el);
+  }
 
   const now = Date.now();
-  const lang = raw.lang === "en" ? "en" : "fr";
   return {
     id: uid(), // a fresh id so import never clobbers an existing play
     title: String(raw.title ?? (lang === "fr" ? "Pièce importée" : "Imported play")),
     subtitle: typeof raw.subtitle === "string" ? raw.subtitle : "",
     author: typeof raw.author === "string" ? raw.author : "",
     lang,
+    altLang: raw.altLang === "en" || raw.altLang === "fr" ? raw.altLang : undefined,
     characters,
     elements,
     createdAt: typeof raw.createdAt === "number" ? raw.createdAt : now,
@@ -111,7 +144,7 @@ export function fromJSON(text: string): Play {
   };
 }
 
-function normalizeElement(e: unknown): Element | null {
+function normalizeElement(e: unknown, resolveSpeaker: (el: Record<string, unknown>) => string): Element | null {
   const el = e as Record<string, unknown>;
   const id = typeof el.id === "string" ? el.id : uid();
   switch (el.type) {
@@ -138,7 +171,7 @@ function normalizeElement(e: unknown): Element | null {
       return {
         id,
         type: "cue",
-        characterId: String(el.characterId ?? ""),
+        characterId: resolveSpeaker(el),
         parenthetical: typeof el.parenthetical === "string" ? el.parenthetical : "",
         text: String(el.text ?? ""),
         alt: typeof el.alt === "string" ? el.alt : undefined,

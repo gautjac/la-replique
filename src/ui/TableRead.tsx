@@ -13,6 +13,7 @@ interface ReadItem {
   name?: string;
   color?: string;
   characterIndex?: number;
+  voiceId?: string;
   text: string;
 }
 
@@ -61,6 +62,7 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
             name: c?.name,
             color: c?.color,
             characterIndex: charIndex.get(el.characterId) ?? 0,
+            voiceId: c?.voiceId,
             text: el.text,
           });
         }
@@ -100,7 +102,8 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
     stopAudio();
   };
 
-  const audioKey = (it: ReadItem) => `${it.kind === "cue" ? "c" + (it.characterIndex ?? 0) : "n"}:${it.text}`;
+  const audioKey = (it: ReadItem) =>
+    `${it.kind === "cue" ? "c" + (it.characterIndex ?? 0) + (it.voiceId ?? "") : "n"}:${it.text}`;
 
   // Get (and cache) an ElevenLabs audio URL for an item. null = server has no key.
   const getAudioUrl = async (it: ReadItem): Promise<string | null> => {
@@ -109,7 +112,11 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
     if (cached) return cached;
     const ac = new AbortController();
     fetchAbort.current = ac;
-    const blob = await ttsFetch(it.text, it.characterIndex ?? 0, it.kind !== "cue", ac.signal);
+    const blob = await ttsFetch(
+      it.text,
+      { voiceId: it.voiceId, voiceIndex: it.characterIndex ?? 0, narrator: it.kind !== "cue" },
+      ac.signal,
+    );
     if (!blob) return null;
     const url = URL.createObjectURL(blob);
     cacheRef.current.set(key, url);

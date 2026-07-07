@@ -10,6 +10,7 @@ export interface CharacterT {
   name: string;
   color: string; // hex, from the cast swatch palette
   note?: string; // short description / who they are
+  voiceId?: string; // chosen ElevenLabs voice id (undefined = automatic rotation)
 }
 
 interface BaseEl {

@@ -1,15 +1,34 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { fetchVoices, ttsFetch, type ElevenVoice } from "../api";
 import { useUI } from "../i18n";
 import { castStats, makeCharacter } from "../model";
 import { addCharacterTo, removeCharacter, updateCharacter } from "../ops";
 import { downloadText, slugify, toSides } from "../export";
-import type { Lang, Play } from "../types";
+import type { CharacterT, Lang, Play } from "../types";
 import { CAST_SWATCHES } from "../types";
 import { Segmented } from "./common";
+
+// Fetch the ElevenLabs voice list once per session and share it across renders.
+let voicesPromise: Promise<ElevenVoice[] | null> | null = null;
+function loadVoices(): Promise<ElevenVoice[] | null> {
+  if (!voicesPromise) voicesPromise = fetchVoices().catch(() => null);
+  return voicesPromise;
+}
 
 export function CastPanel({ play, commit }: { play: Play; commit: (p: Play) => void }) {
   const { t } = useUI();
   const [draft, setDraft] = useState("");
+  const [voices, setVoices] = useState<ElevenVoice[] | null | undefined>(undefined);
+
+  useEffect(() => {
+    let alive = true;
+    void loadVoices().then((v) => {
+      if (alive) setVoices(v);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
   const stats = castStats(play);
 
   const add = () => {
@@ -87,6 +106,14 @@ export function CastPanel({ play, commit }: { play: Play; commit: (p: Play) => v
                 placeholder={t("characterNote")}
                 className="mt-2 w-full bg-transparent text-xs text-ink-faint outline-none placeholder:text-ink-faint/60"
               />
+              {voices && voices.length > 0 && (
+                <VoicePicker
+                  character={c}
+                  voices={voices}
+                  lang={play.lang}
+                  onChange={(voiceId) => commit(updateCharacter(play, c.id, { voiceId }))}
+                />
+              )}
               <div className="mt-2 flex items-center gap-3 text-xs text-ink-faint">
                 <span>
                   <span className="font-semibold text-white">{s?.lines ?? 0}</span> {t("lines")}
@@ -108,6 +135,83 @@ export function CastPanel({ play, commit }: { play: Play; commit: (p: Play) => v
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+function VoicePicker({
+  character,
+  voices,
+  lang,
+  onChange,
+}: {
+  character: CharacterT;
+  voices: ElevenVoice[];
+  lang: Lang;
+  onChange: (voiceId: string | undefined) => void;
+}) {
+  const { t } = useUI();
+  const [busy, setBusy] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => () => audioRef.current?.pause(), []);
+
+  const preview = async () => {
+    if (!character.voiceId) return;
+    setBusy(true);
+    try {
+      const sample = lang === "fr" ? `Bonjour, je suis ${character.name}.` : `Hello, I'm ${character.name}.`;
+      const blob = await ttsFetch(sample, { voiceId: character.voiceId, voiceIndex: 0, narrator: false });
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        audioRef.current?.pause();
+        const audio = new Audio(url);
+        audioRef.current = audio;
+        audio.onended = () => URL.revokeObjectURL(url);
+        await audio.play().catch(() => {});
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 flex items-center gap-1.5">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#8b93a4" strokeWidth="2" aria-hidden>
+        <path d="M12 3v18M8 8v8M4 11v2M16 6v12M20 9v6" />
+      </svg>
+      <select
+        value={character.voiceId ?? ""}
+        onChange={(e) => onChange(e.target.value || undefined)}
+        className="min-w-0 flex-1 rounded-md bg-desk px-2 py-1 text-xs text-white outline-none ring-1 ring-desk-rule focus:ring-gel"
+        aria-label={t("voiceFor")}
+      >
+        <option value="">{t("voiceAuto")}</option>
+        {voices.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.name}
+            {v.accent ? ` · ${v.accent}` : ""}
+            {v.gender ? ` · ${v.gender}` : ""}
+          </option>
+        ))}
+      </select>
+      <button
+        onClick={preview}
+        disabled={!character.voiceId || busy}
+        title={t("voicePreview")}
+        aria-label={t("voicePreview")}
+        className="rounded-md p-1 text-ink-faint transition hover:bg-desk-rule hover:text-white disabled:opacity-30"
+      >
+        {busy ? (
+          <span className="block h-3 w-3 animate-spin rounded-full border-2 border-gel border-t-transparent" />
+        ) : (
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+            <path d="M5 4l14 8-14 8z" />
+          </svg>
+        )}
+      </button>
     </div>
   );
 }
