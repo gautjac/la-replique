@@ -93,6 +93,34 @@ export function characterById(play: Play, id: string): CharacterT | undefined {
   return play.characters.find((c) => c.id === id);
 }
 
+export function findCharacterByName(play: Play, name: string): CharacterT | undefined {
+  const n = name.trim().toLowerCase();
+  return play.characters.find((c) => c.name.trim().toLowerCase() === n);
+}
+
+/** Distinct speakers (character ids), in first-appearance order, within the scene at `atIndex`. */
+export function sceneSpeakers(play: Play, atIndex: number): string[] {
+  const els = sceneElements(play, atIndex);
+  const seen: string[] = [];
+  for (const e of els) {
+    if (e.type === "cue" && e.characterId && !seen.includes(e.characterId)) seen.push(e.characterId);
+  }
+  return seen;
+}
+
+/**
+ * When starting a new réplique after the cue at `atIndex`, the speaker to switch to.
+ * In a two-speaker scene, returns the OTHER speaker (dialogue ping-pongs); otherwise
+ * null, meaning "keep the inherited speaker".
+ */
+export function alternateSpeaker(play: Play, atIndex: number): string | null {
+  const src = play.elements[atIndex];
+  if (!src || src.type !== "cue" || !src.characterId) return null;
+  const speakers = sceneSpeakers(play, atIndex);
+  if (speakers.length === 2) return speakers.find((s) => s !== src.characterId) ?? null;
+  return null;
+}
+
 function words(s: string | undefined): number {
   if (!s) return 0;
   const t = s.trim();

@@ -47,7 +47,7 @@ export const STRINGS = {
   chooseCharacter: { fr: "Personnage", en: "Character" },
   emptyScript: { fr: "La page est vide. Commence par une réplique.", en: "The page is empty. Start with a line." },
   startWriting: { fr: "Écrire la première réplique", en: "Write the first line" },
-  keyboardHint: { fr: "Entrée : nouvelle réplique · Tab : changer le type · ⌫ (ligne vide) : supprimer", en: "Enter: new line · Tab: change type · ⌫ (empty line): delete" },
+  keyboardHint: { fr: "Entrée : nouvelle réplique · Tab : changer le type · Nom + espace ou « : » : changer de personnage · ⌫ (ligne vide) : supprimer", en: "Enter: new line · Tab: change type · Name + space or “:” switches character · ⌫ (empty line): delete" },
 
   // — cast —
   addCharacter: { fr: "Ajouter un personnage", en: "Add character" },

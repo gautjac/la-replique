@@ -1,17 +1,20 @@
 import { describe, it, expect } from "vitest";
 import {
   actLabel,
+  alternateSpeaker,
   castStats,
   cycleType,
+  findCharacterByName,
   formatRuntime,
   makeElement,
   presenceGrid,
   roman,
   sceneLabel,
   sceneRange,
+  sceneSpeakers,
   samplePlay,
 } from "./model";
-import type { Play } from "./types";
+import type { CueEl, Play } from "./types";
 
 describe("roman numerals", () => {
   it("maps common act numbers", () => {
@@ -104,6 +107,43 @@ describe("sceneRange", () => {
   it("handles empty plays", () => {
     const empty = { ...play, elements: [] };
     expect(sceneRange(empty, 0)).toEqual({ start: 0, end: 0 });
+  });
+});
+
+describe("speaker helpers", () => {
+  const play = samplePlay("fr"); // BRUNO + ALICE, one scene, cues B/A/B
+  const aliceId = play.characters.find((c) => c.name === "ALICE")!.id;
+  const brunoId = play.characters.find((c) => c.name === "BRUNO")!.id;
+
+  it("findCharacterByName is case-insensitive", () => {
+    expect(findCharacterByName(play, "alice")?.id).toBe(aliceId);
+    expect(findCharacterByName(play, "  BRUNO ")?.id).toBe(brunoId);
+    expect(findCharacterByName(play, "nobody")).toBeUndefined();
+  });
+
+  it("sceneSpeakers lists distinct speakers in order", () => {
+    // first cue index in the fr sample is 3 (act, scene, stage, cue…)
+    const speakers = sceneSpeakers(play, 3);
+    expect(speakers).toEqual([brunoId, aliceId]); // Bruno speaks first
+  });
+
+  it("alternateSpeaker flips in a two-hander", () => {
+    const brunoCueIdx = play.elements.findIndex((e) => e.type === "cue" && (e as CueEl).characterId === brunoId);
+    expect(alternateSpeaker(play, brunoCueIdx)).toBe(aliceId);
+  });
+
+  it("alternateSpeaker returns null on non-cue or single-speaker scenes", () => {
+    const stageIdx = play.elements.findIndex((e) => e.type === "stage");
+    expect(alternateSpeaker(play, stageIdx)).toBeNull();
+
+    const solo: Play = {
+      ...play,
+      elements: [
+        { id: "s", type: "scene", label: "SCÈNE 1" },
+        { id: "c", type: "cue", characterId: brunoId, text: "Seul en scène." },
+      ],
+    };
+    expect(alternateSpeaker(solo, 1)).toBeNull();
   });
 });
 

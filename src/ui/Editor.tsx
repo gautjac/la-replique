@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useUI } from "../i18n";
-import { characterById, cycleType, makeCharacter } from "../model";
+import { alternateSpeaker, characterById, cycleType, findCharacterByName, makeCharacter } from "../model";
 import {
   addCharacterTo,
   convertElement,
@@ -48,8 +48,34 @@ export function Editor({ play, commit }: EditorProps) {
   const onEnter = (id: string) => {
     const i = indexOf(id);
     const r = insertAfter(play, i, "cue");
-    commit(r.play);
+    // In a two-hander, the next réplique flips to the other speaker.
+    const other = alternateSpeaker(play, i);
+    const next = other ? updateElement(r.play, r.id, { characterId: other } as Partial<Element>) : r.play;
+    commit(next);
     focus(r.id);
+  };
+
+  /**
+   * Type-ahead speaker: on a single-token réplique, a space/colon assigns that name as
+   * the speaker (space = existing cast only; colon = switch or create). Returns whether
+   * it handled the key. One commit, so no add/assign race.
+   */
+  const speakerTypeAhead = (elId: string, token: string, allowCreate: boolean): boolean => {
+    const name = token.trim();
+    if (!name) return false;
+    const existing = findCharacterByName(play, name);
+    if (existing) {
+      commit(updateElement(play, elId, { characterId: existing.id, text: "" } as Partial<Element>));
+      return true;
+    }
+    if (allowCreate) {
+      const c = makeCharacter(name.toUpperCase(), play.characters);
+      let next = addCharacterTo(play, c);
+      next = updateElement(next, elId, { characterId: c.id, text: "" } as Partial<Element>);
+      commit(next);
+      return true;
+    }
+    return false;
   };
 
   const onTab = (id: string, current: ElementType) => {
@@ -116,6 +142,7 @@ export function Editor({ play, commit }: EditorProps) {
                 setCharacter={(cid) => setText(el.id, { characterId: cid } as Partial<CueEl>)}
                 addCharacter={addCharacter}
                 renameCharacter={(cid, name) => commit(updateCharacter(play, cid, { name }))}
+                speakerTypeAhead={speakerTypeAhead}
               />
             ))}
           </div>
@@ -167,21 +194,36 @@ interface RowProps {
   setCharacter: (characterId: string) => void;
   addCharacter: (name: string) => string;
   renameCharacter: (id: string, name: string) => void;
+  speakerTypeAhead: (elId: string, token: string, allowCreate: boolean) => boolean;
 }
 
-function keyHandlers(props: RowProps, current: ElementType, value: string) {
-  return (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      props.onEnter(props.el.id);
-    } else if (e.key === "Tab") {
-      e.preventDefault();
-      props.onTab(props.el.id, current);
-    } else if (e.key === "Backspace" && value.length === 0) {
-      e.preventDefault();
-      props.onBackspaceEmpty(props.el.id);
+/** Enter / Tab / Backspace-on-empty. Shared by every element field. */
+function structural(e: React.KeyboardEvent<HTMLTextAreaElement>, props: RowProps, current: ElementType, value: string) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    props.onEnter(props.el.id);
+  } else if (e.key === "Tab") {
+    e.preventDefault();
+    props.onTab(props.el.id, current);
+  } else if (e.key === "Backspace" && value.length === 0) {
+    e.preventDefault();
+    props.onBackspaceEmpty(props.el.id);
+  }
+}
+
+/** Cue field: try speaker type-ahead on space/colon first, then the structural keys. */
+function cueKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>, props: RowProps) {
+  if (e.key === " " || e.key === ":") {
+    const value = e.currentTarget.value; // DOM value, before this key is inserted
+    if (value.trim() && !/\s/.test(value)) {
+      const handled = props.speakerTypeAhead(props.el.id, value, e.key === ":");
+      if (handled) {
+        e.preventDefault();
+        return;
+      }
     }
-  };
+  }
+  structural(e, props, "cue", (props.el as CueEl).text);
 }
 
 function ElementRow(props: RowProps) {
@@ -247,7 +289,7 @@ function ElementRow(props: RowProps) {
           ref={(n) => props.register(el.id, n)}
           value={el.text}
           onChange={(e) => props.setText(el.id, { text: e.target.value } as Partial<Element>)}
-          onKeyDown={keyHandlers(props, "stage", el.text)}
+          onKeyDown={(e) => structural(e, props, "stage", el.text)}
           placeholder={t("stagePlaceholder")}
           className="text-[15px] text-ink-soft"
           aria-label={t("elStage")}
@@ -263,7 +305,7 @@ function ElementRow(props: RowProps) {
           ref={(n) => props.register(el.id, n)}
           value={el.text}
           onChange={(e) => props.setText(el.id, { text: e.target.value } as Partial<Element>)}
-          onKeyDown={keyHandlers(props, "action", el.text)}
+          onKeyDown={(e) => structural(e, props, "action", el.text)}
           placeholder={t("actionPlaceholder")}
           className="text-[15px] text-ink"
           aria-label={t("elAction")}
@@ -293,7 +335,7 @@ function ElementRow(props: RowProps) {
         ref={(n) => props.register(el.id, n)}
         value={el.text}
         onChange={(e) => props.setText(el.id, { text: e.target.value } as Partial<Element>)}
-        onKeyDown={keyHandlers(props, "cue", el.text)}
+        onKeyDown={(e) => cueKeyDown(e, props)}
         placeholder={t("cuePlaceholder")}
         className="mt-0.5 text-[17px] leading-relaxed text-ink"
         aria-label={t("elCue")}
