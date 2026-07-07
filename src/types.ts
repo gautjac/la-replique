@@ -23,11 +23,18 @@ export interface ActEl extends BaseEl {
   label: string;
 }
 
+/** A dramaturgical function a scene can carry on the beat board. */
+export type BeatKind = "setup" | "inciting" | "rising" | "turn" | "crisis" | "climax" | "resolution";
+
 /** SCÈNE 1 — a scene heading, optionally with a place/time (le lieu). */
 export interface SceneEl extends BaseEl {
   type: "scene";
   label: string;
   setting?: string;
+  /** Beat-board planning note: what this scene does. Never exported into the script. */
+  synopsis?: string;
+  /** Beat-board structural tag. */
+  beat?: BeatKind;
 }
 
 /** Didascalie — a stage direction. */

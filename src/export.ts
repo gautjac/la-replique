@@ -1,6 +1,6 @@
 // Export / import. Pure string functions (tested); the download helper is browser-only.
 import { characterById, uid } from "./model";
-import type { CharacterT, Element, Play } from "./types";
+import type { CharacterT, Element, Play, SceneEl } from "./types";
 
 export function slugify(s: string): string {
   const base = s
@@ -117,8 +117,19 @@ function normalizeElement(e: unknown): Element | null {
   switch (el.type) {
     case "act":
       return { id, type: "act", label: String(el.label ?? "") };
-    case "scene":
-      return { id, type: "scene", label: String(el.label ?? ""), setting: typeof el.setting === "string" ? el.setting : "" };
+    case "scene": {
+      const beat = el.beat;
+      const validBeat =
+        typeof beat === "string" && ["setup", "inciting", "rising", "turn", "crisis", "climax", "resolution"].includes(beat);
+      return {
+        id,
+        type: "scene",
+        label: String(el.label ?? ""),
+        setting: typeof el.setting === "string" ? el.setting : "",
+        synopsis: typeof el.synopsis === "string" ? el.synopsis : undefined,
+        beat: validBeat ? (beat as SceneEl["beat"]) : undefined,
+      };
+    }
     case "stage":
       return { id, type: "stage", text: String(el.text ?? "") };
     case "action":

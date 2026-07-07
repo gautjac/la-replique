@@ -9,12 +9,14 @@ import { Segmented } from "./ui/common";
 import { Drawer } from "./ui/common";
 import { Library } from "./ui/Library";
 import { Editor } from "./ui/Editor";
+import { BeatBoard } from "./ui/BeatBoard";
 import { CastPanel } from "./ui/CastPanel";
 import { Measures } from "./ui/Measures";
 import { Atelier } from "./ui/Atelier";
 import { Onboarding } from "./ui/Onboarding";
 
 type Panel = "cast" | "measures" | "atelier" | null;
+type View = "script" | "board";
 
 function usePersistedLocale(): [Locale, (l: Locale) => void] {
   const [locale, setLocale] = useState<Locale>(() => {
@@ -33,6 +35,8 @@ export default function App() {
   const [onboarded, setOnboarded] = useState(() => localStorage.getItem("lr.onboarded") === "1");
   const [current, setCurrent] = useState<Play | null>(null);
   const [panel, setPanel] = useState<Panel>(null);
+  const [view, setView] = useState<View>("script");
+  const [jumpTarget, setJumpTarget] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [toast, setToast] = useState<{ msg: string; key: number } | null>(null);
 
@@ -111,6 +115,7 @@ export default function App() {
       setUndoDepth(0);
       setCurrent(p);
       setPanel(null);
+      setView("script");
     }
   }, []);
 
@@ -122,9 +127,15 @@ export default function App() {
       setUndoDepth(0);
       setCurrent(p);
       setPanel(null);
+      setView("script");
     },
     [],
   );
+
+  const jumpToScene = useCallback((id: string) => {
+    setView("script");
+    setJumpTarget(id);
+  }, []);
 
   const backToLibrary = useCallback(() => {
     if (current) void putPlay(current);
@@ -209,6 +220,8 @@ export default function App() {
             title={current.title}
             locale={locale}
             setLocale={setLocale}
+            view={view}
+            setView={setView}
             canUndo={undoDepth > 0}
             onUndo={undo}
             onBack={backToLibrary}
@@ -217,7 +230,11 @@ export default function App() {
             setExportOpen={setExportOpen}
             onExport={doExport}
           />
-          <Editor play={current} commit={commit} />
+          {view === "board" ? (
+            <BeatBoard play={current} commit={commit} onJump={jumpToScene} />
+          ) : (
+            <Editor play={current} commit={commit} jumpTargetId={jumpTarget} onJumped={() => setJumpTarget(null)} />
+          )}
 
           {panel === "cast" && (
             <Drawer title={tt("cast")} onClose={() => setPanel(null)}>
@@ -253,6 +270,8 @@ function EditorHeader(props: {
   title: string;
   locale: Locale;
   setLocale: (l: Locale) => void;
+  view: View;
+  setView: (v: View) => void;
   canUndo: boolean;
   onUndo: () => void;
   onBack: () => void;
@@ -285,7 +304,18 @@ function EditorHeader(props: {
         <span className="hidden sm:inline">{t("library")}</span>
       </button>
 
-      <div className="mx-1 min-w-0 flex-1 truncate text-center text-sm font-medium text-ink-faint">{props.title}</div>
+      <Segmented
+        size="sm"
+        value={props.view}
+        onChange={props.setView}
+        options={[
+          { value: "script", label: t("viewScript") },
+          { value: "board", label: t("viewBoard") },
+        ]}
+      />
+
+      <div className="mx-1 hidden min-w-0 flex-1 truncate text-center text-sm font-medium text-ink-faint sm:block">{props.title}</div>
+      <div className="flex-1 sm:hidden" />
 
       <button
         onClick={props.onUndo}

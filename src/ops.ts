@@ -1,6 +1,6 @@
 // Pure operations on a Play's element list. Each returns a new Play (updatedAt bumped).
-import { actLabel, makeElement, sceneLabel, uid } from "./model";
-import type { CueEl, Element, ElementType, Play } from "./types";
+import { actLabel, decompose, makeElement, recompose, sceneLabel, uid } from "./model";
+import type { CueEl, Element, ElementType, Play, SceneEl } from "./types";
 
 function withElements(play: Play, elements: Element[]): Play {
   return { ...play, elements, updatedAt: Date.now() };
@@ -95,6 +95,58 @@ export function insertElementsAfter(play: Play, index: number, els: Element[]): 
   const elements = [...play.elements];
   elements.splice(index + 1, 0, ...stamped);
   return withElements(play, elements);
+}
+
+// ————————————————————————————————————————————————————————————————
+// Beat-board structure ops — reorder whole scene/act blocks.
+// ————————————————————————————————————————————————————————————————
+
+/** Move a block one step earlier (-1) or later (+1) in the structure. */
+export function moveBlock(play: Play, blockId: string, dir: -1 | 1): Play {
+  const { preamble, blocks } = decompose(play);
+  const i = blocks.findIndex((b) => b.id === blockId);
+  if (i < 0) return play;
+  const j = i + dir;
+  if (j < 0 || j >= blocks.length) return play;
+  [blocks[i], blocks[j]] = [blocks[j], blocks[i]];
+  return withElements(play, recompose(preamble, blocks));
+}
+
+/** Move a block to a target position (used by drag-and-drop). */
+export function moveBlockToIndex(play: Play, blockId: string, targetIndex: number): Play {
+  const { preamble, blocks } = decompose(play);
+  const i = blocks.findIndex((b) => b.id === blockId);
+  if (i < 0) return play;
+  const [moved] = blocks.splice(i, 1);
+  const clamped = Math.max(0, Math.min(targetIndex, blocks.length));
+  blocks.splice(clamped, 0, moved);
+  return withElements(play, recompose(preamble, blocks));
+}
+
+/** Insert a new empty scene after `afterBlockId` (or at the end when null). */
+export function addSceneAfter(play: Play, afterBlockId: string | null): { play: Play; id: string } {
+  const { preamble, blocks } = decompose(play);
+  const sceneCount = blocks.filter((b) => b.kind === "scene").length;
+  const heading: SceneEl = { id: uid(), type: "scene", label: sceneLabel(sceneCount + 1, play.lang), setting: "" };
+  const block = { id: heading.id, kind: "scene" as const, els: [heading as Element] };
+  const at = afterBlockId ? blocks.findIndex((b) => b.id === afterBlockId) : blocks.length - 1;
+  blocks.splice(at + 1, 0, block);
+  return { play: withElements(play, recompose(preamble, blocks)), id: heading.id };
+}
+
+/** Append a new act heading at the end. */
+export function addActAtEnd(play: Play): { play: Play; id: string } {
+  const n = play.elements.filter((e) => e.type === "act").length + 1;
+  const el: Element = { id: uid(), type: "act", label: actLabel(n, play.lang) };
+  return { play: withElements(play, [...play.elements, el]), id: el.id };
+}
+
+/** Remove a scene heading, keeping its lines (they merge into the previous scene). */
+export function removeSceneHeading(play: Play, sceneId: string): Play {
+  return withElements(
+    play,
+    play.elements.filter((e) => e.id !== sceneId),
+  );
 }
 
 export function addCharacterTo(play: Play, character: Play["characters"][number]): Play {

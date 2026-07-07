@@ -121,11 +121,79 @@ export function alternateSpeaker(play: Play, atIndex: number): string | null {
   return null;
 }
 
-function words(s: string | undefined): number {
+export function countWords(s: string | undefined): number {
   if (!s) return 0;
   const t = s.trim();
   if (!t) return 0;
   return t.split(/\s+/).length;
+}
+const words = countWords;
+
+/** Stats over an arbitrary run of elements — used per-scene on the beat board. */
+export interface ElementStats {
+  speakerIds: string[];
+  lines: number;
+  words: number;
+  runtimeMinutes: number;
+}
+export function elementStats(els: Element[]): ElementStats {
+  const speakerIds: string[] = [];
+  let lines = 0;
+  let w = 0;
+  let stageDirs = 0;
+  for (const e of els) {
+    if (e.type === "cue") {
+      lines += 1;
+      w += countWords(e.text);
+      if (e.characterId && !speakerIds.includes(e.characterId)) speakerIds.push(e.characterId);
+    } else if (e.type === "stage") {
+      stageDirs += 1;
+    }
+  }
+  return { speakerIds, lines, words: w, runtimeMinutes: w / 140 + stageDirs * 0.08 };
+}
+
+/** A structural block: a single act heading, or a scene heading plus its body. */
+export interface Block {
+  id: string; // the act or scene heading element id
+  kind: "act" | "scene";
+  els: Element[]; // the heading and (for scenes) everything up to the next scene/act
+}
+
+/**
+ * Split a play into its reorderable structure: any elements before the first
+ * heading (preamble, pinned) and an ordered list of act/scene blocks.
+ */
+export function decompose(play: Play): { preamble: Element[]; blocks: Block[] } {
+  const preamble: Element[] = [];
+  const blocks: Block[] = [];
+  let cur: Block | null = null;
+
+  for (const el of play.elements) {
+    if (el.type === "act") {
+      if (cur) {
+        blocks.push(cur);
+        cur = null;
+      }
+      blocks.push({ id: el.id, kind: "act", els: [el] });
+    } else if (el.type === "scene") {
+      if (cur) blocks.push(cur);
+      cur = { id: el.id, kind: "scene", els: [el] };
+    } else if (cur) {
+      cur.els.push(el);
+    } else if (blocks.length > 0) {
+      // loose element after an act heading but before the first scene — keep it with the act
+      blocks[blocks.length - 1].els.push(el);
+    } else {
+      preamble.push(el);
+    }
+  }
+  if (cur) blocks.push(cur);
+  return { preamble, blocks };
+}
+
+export function recompose(preamble: Element[], blocks: Block[]): Element[] {
+  return [...preamble, ...blocks.flatMap((b) => b.els)];
 }
 
 export interface CastStat {

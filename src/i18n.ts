@@ -107,6 +107,24 @@ export const STRINGS = {
   obSkip: { fr: "Passer", en: "Skip" },
   next: { fr: "Suivant", en: "Next" },
 
+  // — beat board —
+  viewScript: { fr: "Texte", en: "Script" },
+  viewBoard: { fr: "Tableau", en: "Board" },
+  boardHint: { fr: "Glisse les cartes pour réordonner — chaque carte est une scène.", en: "Drag cards to reorder — each card is a scene." },
+  boardEmpty: { fr: "Aucune scène. Ajoute-en une pour bâtir ta structure.", en: "No scenes yet. Add one to build your structure." },
+  addSceneAction: { fr: "Ajouter une scène", en: "Add scene" },
+  addActAction: { fr: "Ajouter un acte", en: "Add act" },
+  sceneHere: { fr: "Scène ici", en: "Scene here" },
+  synopsisLabel: { fr: "Intention", en: "Intention" },
+  synopsisPlaceholder: { fr: "Ce qui se passe, ce que ça change…", en: "What happens, what it changes…" },
+  beatFunction: { fr: "Fonction", en: "Function" },
+  beatNone: { fr: "— fonction —", en: "— function —" },
+  jumpToText: { fr: "Ouvrir dans le texte", en: "Open in script" },
+  moveUp: { fr: "Monter", en: "Move up" },
+  moveDown: { fr: "Descendre", en: "Move down" },
+  removeSceneHeading: { fr: "Retirer l'en-tête (garde les répliques)", en: "Remove heading (keep the lines)" },
+  emptyScene: { fr: "Scène vide", en: "Empty scene" },
+
   // — misc —
   langOfPlay: { fr: "Langue de la pièce", en: "Play language" },
   interfaceLang: { fr: "Interface", en: "Interface" },

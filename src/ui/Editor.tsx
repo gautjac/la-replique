@@ -15,6 +15,8 @@ import { AutoTextarea } from "./AutoTextarea";
 interface EditorProps {
   play: Play;
   commit: (next: Play) => void;
+  jumpTargetId?: string | null;
+  onJumped?: () => void;
 }
 
 interface FocusReq {
@@ -22,10 +24,22 @@ interface FocusReq {
   at: number; // nonce so repeated focus of same id still fires
 }
 
-export function Editor({ play, commit }: EditorProps) {
+export function Editor({ play, commit, jumpTargetId, onJumped }: EditorProps) {
   const { t } = useUI();
   const fieldRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const [focusReq, setFocusReq] = useState<FocusReq | null>(null);
+
+  // Scroll to a scene when arriving from the beat board.
+  useEffect(() => {
+    if (!jumpTargetId) return;
+    const el = document.querySelector(`[data-elid="${jumpTargetId}"]`);
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      el.classList.add("ring-2", "ring-gel", "rounded-lg");
+      window.setTimeout(() => el.classList.remove("ring-2", "ring-gel", "rounded-lg"), 1400);
+    }
+    onJumped?.();
+  }, [jumpTargetId, onJumped]);
 
   useEffect(() => {
     if (!focusReq) return;
@@ -232,7 +246,7 @@ function ElementRow(props: RowProps) {
 
   if (el.type === "act") {
     return (
-      <div className="my-8 flex items-center gap-3">
+      <div data-elid={el.id} className="my-8 flex items-center gap-3">
         <span className="h-px flex-1 bg-paper-edge" />
         <input
           value={el.label}
@@ -256,7 +270,7 @@ function ElementRow(props: RowProps) {
 
   if (el.type === "scene") {
     return (
-      <div className="mb-4 mt-7">
+      <div data-elid={el.id} className="mb-4 mt-7">
         <input
           value={el.label}
           onChange={(e) => props.setText(el.id, { label: e.target.value.toUpperCase() } as Partial<Element>)}
