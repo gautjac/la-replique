@@ -3,6 +3,28 @@
 
 export type AtelierOp = "relance" | "dramaturgie" | "traduire" | "retoucher" | "voix" | "etsi";
 
+/**
+ * Fetch ElevenLabs speech for a line. Returns an audio Blob, or `null` when the
+ * server has no ElevenLabs key configured (so the caller falls back to OS voices).
+ * Throws on other failures.
+ */
+export async function ttsFetch(
+  text: string,
+  voiceIndex: number,
+  narrator: boolean,
+  signal?: AbortSignal,
+): Promise<Blob | null> {
+  const resp = await fetch("/api/tts", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ text, voiceIndex, narrator }),
+    signal,
+  });
+  if (resp.status === 503) return null; // no key configured
+  if (!resp.ok) throw new Error(`tts ${resp.status}`);
+  return await resp.blob();
+}
+
 export interface RelanceReq {
   op: "relance";
   lang: "fr" | "en";

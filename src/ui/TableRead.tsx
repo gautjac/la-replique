@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { ttsFetch } from "../api";
 import { useUI } from "../i18n";
 import { characterById } from "../model";
 import type { Play } from "../types";
+import { Segmented } from "./common";
+
+type Engine = "eleven" | "system";
 
 interface ReadItem {
   id: string;
@@ -30,8 +34,15 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
+  const [engine, setEngine] = useState<Engine>("eleven");
+  const [elevenOff, setElevenOff] = useState(false); // true once we learn there's no key
   const playingRef = useRef(false);
+  const engineRef = useRef<Engine>("eleven");
+  engineRef.current = engine;
   const listRef = useRef<HTMLDivElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const cacheRef = useRef<Map<string, string>>(new Map());
+  const fetchAbort = useRef<AbortController | null>(null);
 
   const items = useMemo<ReadItem[]>(() => {
     const charIndex = new Map(play.characters.map((c, i) => [c.id, i]));
@@ -71,22 +82,47 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
     return langVoices[langVoices.length - 1]; // narrator = a distinct voice
   };
 
+  const speechAvailable = typeof window !== "undefined" && "speechSynthesis" in window;
+
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    fetchAbort.current?.abort();
+  };
+
   const stop = () => {
     playingRef.current = false;
     setPlaying(false);
-    if (typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+    if (speechAvailable) speechSynthesis.cancel();
+    stopAudio();
   };
 
-  // Speak the item at `i`, then chain forward while playing.
-  const speakFrom = (i: number) => {
-    if (typeof speechSynthesis === "undefined") return;
-    if (i >= items.length) {
-      stop();
+  const audioKey = (it: ReadItem) => `${it.kind === "cue" ? "c" + (it.characterIndex ?? 0) : "n"}:${it.text}`;
+
+  // Get (and cache) an ElevenLabs audio URL for an item. null = server has no key.
+  const getAudioUrl = async (it: ReadItem): Promise<string | null> => {
+    const key = audioKey(it);
+    const cached = cacheRef.current.get(key);
+    if (cached) return cached;
+    const ac = new AbortController();
+    fetchAbort.current = ac;
+    const blob = await ttsFetch(it.text, it.characterIndex ?? 0, it.kind !== "cue", ac.signal);
+    if (!blob) return null;
+    const url = URL.createObjectURL(blob);
+    cacheRef.current.set(key, url);
+    return url;
+  };
+
+  const systemSpeak = (i: number) => {
+    if (!speechAvailable) {
+      if (playingRef.current) speakFrom(i + 1);
       return;
     }
-    setIndex(i);
     const it = items[i];
-    const u = new SpeechSynthesisUtterance(it.kind === "cue" && it.name ? it.text : it.text);
+    const u = new SpeechSynthesisUtterance(it.text);
     const v = voiceForItem(it);
     if (v) u.voice = v;
     u.lang = v?.lang ?? (play.lang === "fr" ? "fr-CA" : "en-US");
@@ -97,24 +133,67 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
     speechSynthesis.speak(u);
   };
 
+  // Speak item `i`, then chain forward while playing. Uses ElevenLabs when selected
+  // and available; falls back to OS voices on the first missing-key signal.
+  const speakFrom = (i: number) => {
+    if (i >= items.length) {
+      stop();
+      return;
+    }
+    setIndex(i);
+    if (engineRef.current === "eleven" && !elevenOff) {
+      void (async () => {
+        let url: string | null;
+        try {
+          url = await getAudioUrl(items[i]);
+        } catch {
+          if (playingRef.current) speakFrom(i + 1);
+          return;
+        }
+        if (url === null) {
+          setElevenOff(true);
+          setEngine("system");
+          engineRef.current = "system";
+          if (playingRef.current) systemSpeak(i);
+          return;
+        }
+        if (!playingRef.current) return;
+        const audio = new Audio(url);
+        audio.playbackRate = rate;
+        audioRef.current = audio;
+        // prefetch the next line so playback is gapless
+        if (items[i + 1] && engineRef.current === "eleven") void getAudioUrl(items[i + 1]).catch(() => {});
+        audio.onended = () => {
+          if (playingRef.current) speakFrom(i + 1);
+        };
+        void audio.play().catch(() => {});
+      })();
+    } else {
+      systemSpeak(i);
+    }
+  };
+
   const play_ = () => {
-    if (typeof speechSynthesis === "undefined") return;
     playingRef.current = true;
     setPlaying(true);
-    speechSynthesis.cancel();
+    if (speechAvailable) speechSynthesis.cancel();
+    stopAudio();
     speakFrom(index);
   };
 
   useEffect(() => {
-    // scroll active line into view
     const el = listRef.current?.querySelector(`[data-read="${index}"]`);
     el?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [index]);
 
-  // Guarantee silence on unmount.
+  // Guarantee silence + free blobs on unmount.
   useEffect(() => {
+    const cache = cacheRef.current;
     return () => {
       if (typeof speechSynthesis !== "undefined") speechSynthesis.cancel();
+      audioRef.current?.pause();
+      fetchAbort.current?.abort();
+      for (const url of cache.values()) URL.revokeObjectURL(url);
     };
   }, []);
 
@@ -122,12 +201,11 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
     const clamped = Math.max(0, Math.min(i, items.length - 1));
     setIndex(clamped);
     if (playingRef.current) {
-      speechSynthesis.cancel();
+      if (speechAvailable) speechSynthesis.cancel();
+      stopAudio();
       speakFrom(clamped);
     }
   };
-
-  const speechAvailable = typeof window !== "undefined" && "speechSynthesis" in window;
 
   return (
     <div className="no-print fixed inset-0 z-50 flex flex-col bg-desk">
@@ -141,8 +219,11 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
         </button>
       </header>
 
-      {!speechAvailable && (
+      {!speechAvailable && engine === "system" && (
         <p className="bg-rose/10 px-5 py-2 text-center text-sm text-rose">{t("tableReadNoVoice")}</p>
+      )}
+      {elevenOff && (
+        <p className="bg-desk-light px-5 py-1.5 text-center text-xs text-ink-faint">{t("tableReadElevenOff")}</p>
       )}
 
       <div ref={listRef} className="thin-scroll mx-auto w-full max-w-2xl flex-1 overflow-y-auto px-5 py-8">
@@ -181,7 +262,7 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
           </button>
           <button
             onClick={() => (playing ? stop() : play_())}
-            disabled={!speechAvailable || items.length === 0}
+            disabled={items.length === 0}
             className="rounded-full bg-gel px-5 py-2.5 text-sm font-semibold text-white shadow-gel hover:bg-gel-bright disabled:opacity-40"
           >
             {playing ? t("pause") : t("play")}
@@ -189,13 +270,37 @@ export function TableRead({ play, onClose }: { play: Play; onClose: () => void }
           <button onClick={() => goto(index + 1)} className="rounded-lg p-2 text-ink-faint hover:bg-desk-light hover:text-white" aria-label={t("next")}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M16 6h2v12h-2zM4 6l9 6-9 6z" /></svg>
           </button>
-          <div className="ml-2 flex items-center gap-2">
+          <div className="ml-2 hidden items-center gap-2 sm:flex">
             <span className="text-xs text-ink-faint">{t("speed")}</span>
-            <input type="range" min={0.7} max={1.3} step={0.1} value={rate} onChange={(e) => setRate(Number(e.target.value))} className="w-24 accent-gel" />
+            <input type="range" min={0.7} max={1.3} step={0.1} value={rate} onChange={(e) => setRate(Number(e.target.value))} className="w-20 accent-gel" />
           </div>
-          <span className="ml-auto text-xs text-ink-faint">
-            {Math.min(index + 1, items.length)} / {items.length}
-          </span>
+
+          <div className="ml-auto flex items-center gap-3">
+            {!elevenOff && (
+              <Segmented
+                size="sm"
+                value={engine}
+                onChange={(v) => {
+                  const wasPlaying = playingRef.current;
+                  stop();
+                  setEngine(v);
+                  engineRef.current = v;
+                  if (wasPlaying) {
+                    playingRef.current = true;
+                    setPlaying(true);
+                    speakFrom(index);
+                  }
+                }}
+                options={[
+                  { value: "eleven", label: t("voiceEleven") },
+                  { value: "system", label: t("voiceSystem") },
+                ]}
+              />
+            )}
+            <span className="text-xs text-ink-faint">
+              {Math.min(index + 1, items.length)} / {items.length}
+            </span>
+          </div>
         </div>
       </footer>
     </div>
