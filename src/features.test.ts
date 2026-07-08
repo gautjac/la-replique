@@ -5,7 +5,7 @@ import {
   throughLines,
   timelineSegments,
 } from "./model";
-import { fromJSON, linesDiff, toSides, toSurtitles } from "./export";
+import { fromJSON, linesDiff, toAiJSON, toSides, toSurtitles } from "./export";
 import { applySurtitles, buildBundle } from "./translate";
 import { samplePlay } from "./model";
 import type { CueEl, Play } from "./types";
@@ -116,6 +116,45 @@ describe("surtitles", () => {
     const sheet = toSurtitles(applySurtitles(play, "en", bundle));
     expect(sheet).toMatch(/1\. BRUNO/);
     expect(sheet).toContain("EN:Un deux trois.");
+  });
+});
+
+describe("toAiJSON — clean export for AI round-trips", () => {
+  const play = fixture();
+
+  it("names the speaker instead of using ids, and omits empty fields", () => {
+    const doc = JSON.parse(toAiJSON(play));
+    const cue = doc.elements.find((e: { type: string }) => e.type === "cue");
+    expect(cue.character).toBe("BRUNO"); // by NAME
+    expect(cue.characterId).toBeUndefined();
+    expect("parenthetical" in cue).toBe(false); // omitted when empty
+    expect(doc.format).toBe("la-replique/1");
+    // characters carry name (+ note), not color/id
+    expect(doc.characters[0]).not.toHaveProperty("color");
+    expect(doc.characters[0]).not.toHaveProperty("id");
+  });
+
+  it("round-trips through fromJSON (content + speaker links preserved)", () => {
+    const back = fromJSON(toAiJSON(play));
+    expect(back.title).toBe(play.title);
+    expect(back.characters.map((c) => c.name).sort()).toEqual(play.characters.map((c) => c.name).sort());
+    expect(back.elements.filter((e) => e.type === "cue")).toHaveLength(
+      play.elements.filter((e) => e.type === "cue").length,
+    );
+    // a re-imported cue still resolves to a real character
+    const cue = back.elements.find((e) => e.type === "cue") as CueEl;
+    expect(back.characters.some((c) => c.id === cue.characterId)).toBe(true);
+  });
+
+  it("preserves scene setting and a beat tag on export", () => {
+    const withBeat: Play = {
+      ...play,
+      elements: play.elements.map((e) => (e.type === "scene" ? { ...e, beat: "turn" as const, setting: "Cuisine" } : e)),
+    };
+    const doc = JSON.parse(toAiJSON(withBeat));
+    const scene = doc.elements.find((e: { type: string }) => e.type === "scene");
+    expect(scene.beat).toBe("turn");
+    expect(scene.setting).toBe("Cuisine");
   });
 });
 

@@ -171,6 +171,7 @@ export const STRINGS = {
   printClean: { fr: "Imprimer — épuré", en: "Print — clean" },
   printTheatre: { fr: "Imprimer — théâtre (FR)", en: "Print — théâtre (FR)" },
   surtitlesTxt: { fr: "Surtitres (.txt)", en: "Surtitles (.txt)" },
+  aiJson: { fr: "Pour l'IA — éditable (.json)", en: "For AI — editable (.json)" },
 
   // — measures additions —
   throughLine: { fr: "Fil de chaque personnage", en: "Each character's through-line" },

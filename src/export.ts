@@ -73,6 +73,57 @@ export function toJSON(play: Play): string {
   return JSON.stringify({ format: "la-replique/1", play }, null, 2);
 }
 
+/**
+ * A clean `la-replique/1` document for handing to an AI (or re-importing): cues name
+ * their speaker, ids/colours/timestamps are dropped, empty fields omitted. Round-trips
+ * through fromJSON. Use this to revise an existing play with a model, then re-import.
+ */
+export function toAiJSON(play: Play): string {
+  const nameOf = (id: string) => characterById(play, id)?.name ?? "?";
+
+  const characters = play.characters.map((c) => {
+    const o: Record<string, unknown> = { name: c.name };
+    if (c.note) o.note = c.note;
+    if (c.voiceId) o.voiceId = c.voiceId;
+    return o;
+  });
+
+  const elements = play.elements.map((el): Record<string, unknown> => {
+    switch (el.type) {
+      case "act":
+        return { type: "act", label: el.label };
+      case "scene": {
+        const o: Record<string, unknown> = { type: "scene", label: el.label };
+        if (el.setting) o.setting = el.setting;
+        if (el.synopsis) o.synopsis = el.synopsis;
+        if (el.beat) o.beat = el.beat;
+        return o;
+      }
+      case "stage": {
+        const o: Record<string, unknown> = { type: "stage", text: el.text };
+        if (el.alt) o.alt = el.alt;
+        return o;
+      }
+      case "action":
+        return { type: "action", text: el.text };
+      case "cue": {
+        const o: Record<string, unknown> = { type: "cue", character: nameOf(el.characterId), text: el.text };
+        if (el.parenthetical) o.parenthetical = el.parenthetical;
+        if (el.alt) o.alt = el.alt;
+        return o;
+      }
+    }
+  });
+
+  const doc: Record<string, unknown> = { format: "la-replique/1", title: play.title, lang: play.lang };
+  if (play.subtitle) doc.subtitle = play.subtitle;
+  if (play.author) doc.author = play.author;
+  if (play.altLang) doc.altLang = play.altLang;
+  doc.characters = characters;
+  doc.elements = elements;
+  return JSON.stringify(doc, null, 2);
+}
+
 /** Parse and normalize an imported backup. Throws on anything unusable. */
 export function fromJSON(text: string): Play {
   const data = JSON.parse(text);

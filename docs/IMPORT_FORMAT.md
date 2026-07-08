@@ -18,6 +18,17 @@ to your clipboard — paste it into Claude (or any model), ask for the play you 
 the model's JSON answer back into the import box. The prompt is reproduced in
 [`src/importFormat.ts`](../src/importFormat.ts).
 
+### Revising an existing play with an AI (round-trip)
+
+To have a model *rework* a play you already have:
+
+1. Open the play → **Exporter → « Pour l'IA — éditable (.json) »**. This writes a clean
+   `la-replique/1` document (speakers by name, no ids/colours).
+2. Give it to a model: *"Here's a play in la-replique/1 format. Revise it so that … Return only
+   the JSON."* — paste the file's contents after your instruction.
+3. Paste the model's answer into **Importer un texte**. It comes in as a **new** play, so your
+   original is never overwritten.
+
 ---
 
 ## Format 1 — plain text

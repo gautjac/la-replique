@@ -3,7 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db, deletePlay as dbDelete, getPlay, putPlay } from "./db";
 import { UIContext, type Locale, type UIKey, STRINGS } from "./i18n";
 import { blankPlay, samplePlay } from "./model";
-import { downloadText, fromJSON, slugify, toJSON, toPlainText } from "./export";
+import { downloadText, fromJSON, slugify, toAiJSON, toJSON, toPlainText } from "./export";
 import type { Play } from "./types";
 import { Segmented } from "./ui/common";
 import { Drawer } from "./ui/common";
@@ -195,7 +195,7 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [current, undo]);
 
-  const doExport = (kind: "print-clean" | "print-theatre" | "txt" | "surtitles" | "json") => {
+  const doExport = (kind: "print-clean" | "print-theatre" | "txt" | "surtitles" | "ai-json" | "json") => {
     if (!current) return;
     setExportOpen(false);
     const slug = slugify(current.title);
@@ -205,6 +205,7 @@ export default function App() {
       window.setTimeout(() => window.print(), 60);
     } else if (kind === "txt") downloadText(`${slug}.txt`, toPlainText(current), "text/plain");
     else if (kind === "surtitles") downloadText(`${slug}-surtitres.txt`, toSurtitles(current), "text/plain");
+    else if (kind === "ai-json") downloadText(`${slug}-ia.json`, toAiJSON(current), "application/json");
     else downloadText(`${slug}.json`, toJSON(current), "application/json");
   };
 
@@ -335,7 +336,7 @@ function EditorHeader(props: {
   onTableRead: () => void;
   exportOpen: boolean;
   setExportOpen: (v: boolean) => void;
-  onExport: (kind: "print-clean" | "print-theatre" | "txt" | "surtitles" | "json") => void;
+  onExport: (kind: "print-clean" | "print-theatre" | "txt" | "surtitles" | "ai-json" | "json") => void;
 }) {
   const t = (k: UIKey) => STRINGS[k][props.locale];
   const exportRef = useRef<HTMLDivElement>(null);
@@ -467,6 +468,8 @@ function EditorHeader(props: {
             <div className="my-1 h-px bg-desk-rule" />
             <ExportItem label={t("plainText")} onClick={() => props.onExport("txt")} />
             {props.hasAlt && <ExportItem label={t("surtitlesTxt")} onClick={() => props.onExport("surtitles")} />}
+            <div className="my-1 h-px bg-desk-rule" />
+            <ExportItem label={t("aiJson")} onClick={() => props.onExport("ai-json")} />
             <ExportItem label={t("jsonBackup")} onClick={() => props.onExport("json")} />
           </div>
         )}
