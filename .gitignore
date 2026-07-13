@@ -4,3 +4,7 @@ dist
 .env
 *.local
 .DS_Store
+
+# Remotion promo — heavy render outputs / caches (source is kept)
+promo/out
+**/.remotion
