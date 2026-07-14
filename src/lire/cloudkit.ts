@@ -3,7 +3,7 @@
 // origin-restricted web API token.
 const TOKEN = import.meta.env.VITE_CLOUDKIT_TOKEN as string | undefined;
 const CONTAINER = "iCloud.app.atelier.lareplique";
-const ENVIRONMENT = "development"; // switch to "production" once the schema is deployed
+const ENVIRONMENT = "production"; // TestFlight/App Store builds publish to production
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyCK = any;
