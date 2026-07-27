@@ -1,9 +1,12 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
-import App from "./App";
 import { Lire } from "./lire/Lire";
-import { ensurePersistentStorage } from "./persist";
+import { Landing } from "./Landing";
+
+// The web is READ-ONLY: a landing + the /lire reading viewer. All writing happens
+// in the native iOS/macOS app (synced via CloudKit). The former web editor
+// (App.tsx + src/ui/*) is kept on disk but no longer routed or bundled.
 
 const root = createRoot(document.getElementById("root")!);
 const path = window.location.pathname;
@@ -17,11 +20,10 @@ if (path.startsWith("/lire/")) {
     </StrictMode>,
   );
 } else {
-  // Ask the browser to keep our IndexedDB before we mount (data durability rule).
-  void ensurePersistentStorage();
+  // Everything else → the landing (marketing front door).
   root.render(
     <StrictMode>
-      <App />
+      <Landing />
     </StrictMode>,
   );
 }

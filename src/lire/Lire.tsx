@@ -20,6 +20,7 @@ interface Doc {
   title?: string;
   subtitle?: string;
   author?: string;
+  logline?: string;
   lang?: string;
   characters?: Cast[];
   elements?: El[];
@@ -28,6 +29,9 @@ interface Doc {
 const DEMO: Doc = {
   title: "La porte",
   subtitle: "esquisse",
+  author: "A. Dramaturge",
+  logline:
+    "Dix ans après, il revient frapper. Elle a une assiette dans les mains et toute une vie à ne pas ouvrir.",
   lang: "fr",
   characters: [{ name: "ALICE" }, { name: "BRUNO" }],
   elements: [
@@ -123,6 +127,7 @@ function Reader({ doc }: { doc: Doc }) {
       <h1 className="font-display text-3xl font-semibold text-white sm:text-4xl">{doc.title || "Pièce sans titre"}</h1>
       {doc.subtitle && <p className="mt-1 text-ink-faint">{doc.subtitle}</p>}
       {doc.author && <p className="mt-1 text-sm text-ink-faint">{(doc.lang === "en" ? "by " : "de ") + doc.author}</p>}
+      {doc.logline && <p className="mt-3 max-w-prose text-[15px] leading-relaxed text-ink-faint">{doc.logline}</p>}
 
       <div className="script mt-6 rounded-xl bg-paper px-6 py-8 text-ink shadow-page sm:px-12 sm:py-12">
         {(doc.elements ?? []).map((el, i) => {
