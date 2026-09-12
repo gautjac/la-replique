@@ -118,6 +118,26 @@ Qualities:
 - Each raises stakes / turns the scene; `why` names the pressure.
 - Offered as options, never as corrections. French output.
 
+## 10. Craft corpus — the skills are present, invisible, and cached
+
+Every op now carries the craft corpus (see `docs/CRAFT_CORPUS.md`). Run **relance twice in a
+row** (same scene, different character), then **dramaturgie** on the flat scene from §3.
+
+Qualities:
+- Function log shows `cache_read_input_tokens` ≈ 55 000 on the **second** relance (the first
+  writes ≈55 000 with `cache_creation_input_tokens`). Dramaturgie right after reads ≈34 000
+  (the shared core) and writes only its extras. Zero reads across repeats = a silent
+  invalidator; fix before shipping.
+- The read is **sharper than before**, not longer: names what a character *wants* and the
+  tactic under the line, flags on-the-nose lines and slack beats, says where the value of
+  the scene turns (or doesn't).
+- **No leakage**: no Chinese characters, no author or book names (McKee, Egri, 麦基…), no
+  "according to the reference", no craft-vocabulary lecture. If a term appears it is the
+  English original or a natural French equivalent (« incident déclencheur », subtext).
+- The scene's own logic still wins: the corpus never makes the model invent facts or force
+  a three-act reading onto a two-page scene.
+- Relance still returns spoken words only; the corpus must not make it verbose.
+
 ### How to run
 `npm run dev` (netlify dev with `CLAUDE_API_KEY` set) or hit the deployed
 `/api/atelier`. POST bodies mirror `src/api.ts` (`RelanceReq` / `DramaturgieReq` /

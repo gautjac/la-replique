@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { craftSystem, type AtelierOp } from "./corpus.ts";
 
 // One place for the model ids (Conduite AI: model = pinned dependency).
 const MODEL = "claude-opus-4-8";
@@ -12,24 +13,136 @@ function client(): Anthropic {
 export type Lang = "fr" | "en";
 
 // ————————————————————————————————————————————————————————————————
+// Tool schemas — ONE fixed list sent on every call.
+// Prompt caching renders tools → system → messages, and any change to the
+// tool definitions drops the whole cache; only tool_choice varies per op,
+// which leaves the tools+system cache intact. So every op sends all six
+// tools in this order and forces its own with tool_choice.
+// ————————————————————————————————————————————————————————————————
+export const TOOL_SCHEMAS = {
+  proposer_replique: {
+    type: "object",
+    properties: {
+      line: { type: "string", description: "The character's spoken words only." },
+      parenthetical: { type: "string", description: "Optional short stage beat / jeu. Empty if none." },
+    },
+    required: ["line"],
+  },
+
+  notes: {
+    type: "object",
+    properties: {
+      read: { type: "string" },
+      points: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            kind: { type: "string", enum: ["tension", "clarte", "voix", "piste"] },
+            text: { type: "string" },
+          },
+          required: ["kind", "text"],
+        },
+      },
+    },
+    required: ["read", "points"],
+  },
+
+  retoucher: {
+    type: "object",
+    properties: {
+      variants: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { text: { type: "string" }, note: { type: "string" } },
+          required: ["text"],
+        },
+      },
+    },
+    required: ["variants"],
+  },
+
+  voix: {
+    type: "object",
+    properties: {
+      read: { type: "string" },
+      points: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { excerpt: { type: "string" }, note: { type: "string" } },
+          required: ["excerpt", "note"],
+        },
+      },
+    },
+    required: ["read", "points"],
+  },
+
+  et_si: {
+    type: "object",
+    properties: {
+      ideas: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { premise: { type: "string" }, why: { type: "string" } },
+          required: ["premise", "why"],
+        },
+      },
+    },
+    required: ["ideas"],
+  },
+
+  traduction: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { k: { type: "string" }, t: { type: "string" } },
+          required: ["k", "t"],
+        },
+      },
+    },
+    required: ["items"],
+  },
+} as const satisfies Record<string, Anthropic.Tool.InputSchema>;
+
+export type ToolName = keyof typeof TOOL_SCHEMAS;
+
+export const TOOLS: Anthropic.Tool[] = (Object.keys(TOOL_SCHEMAS) as ToolName[]).map((name) => ({
+  name,
+  description: "Return the result.",
+  input_schema: TOOL_SCHEMAS[name],
+}));
+
+// ————————————————————————————————————————————————————————————————
 // Shared: force a single tool call and return its validated input object.
+// Every op's `system` = the cached craft corpus for that op (see corpus.ts)
+// followed by the op's own task prompt.
 // ————————————————————————————————————————————————————————————————
 async function callTool<T>(args: {
+  op: AtelierOp;
   system: string;
   user: string;
-  toolName: string;
-  schema: Anthropic.Tool.InputSchema;
+  toolName: ToolName;
+  schema: Anthropic.Tool.InputSchema; // documents the op's shape; the wire carries TOOLS
   maxTokens: number;
 }): Promise<T> {
   const c = client();
   const resp = await c.messages.create({
     model: MODEL,
     max_tokens: args.maxTokens,
-    system: args.system,
-    tools: [{ name: args.toolName, description: "Return the result.", input_schema: args.schema }],
+    system: craftSystem(args.op, args.system),
+    tools: TOOLS,
     tool_choice: { type: "tool", name: args.toolName },
     messages: [{ role: "user", content: args.user }],
   });
+  // One line per call in the function log: proves the corpus is served from
+  // cache (cache_read_input_tokens ≈ corpus size after the first call).
+  console.log(JSON.stringify({ atelier: args.op, model: resp.model, usage: resp.usage }));
   const block = resp.content.find((b) => b.type === "tool_use");
   if (!block || block.type !== "tool_use") throw new Error("Model returned no tool call");
   return block.input as T;
@@ -79,16 +192,10 @@ Propose sa prochaine réplique.`;
   const out = await callTool<RelanceOutput>({
     system,
     user,
+    op: "relance",
     toolName: "proposer_replique",
     maxTokens: 700,
-    schema: {
-      type: "object",
-      properties: {
-        line: { type: "string", description: "The character's spoken words only." },
-        parenthetical: { type: "string", description: "Optional short stage beat / jeu. Empty if none." },
-      },
-      required: ["line"],
-    },
+    schema: TOOL_SCHEMAS.proposer_replique,
   });
   return { line: (out.line ?? "").trim(), parenthetical: (out.parenthetical ?? "").trim() || undefined };
 }
@@ -134,26 +241,10 @@ Donne ta lecture dramaturgique de cette scène.`;
   const out = await callTool<DramaturgieOutput>({
     system,
     user,
+    op: "dramaturgie",
     toolName: "notes",
     maxTokens: 1500,
-    schema: {
-      type: "object",
-      properties: {
-        read: { type: "string" },
-        points: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              kind: { type: "string", enum: ["tension", "clarte", "voix", "piste"] },
-              text: { type: "string" },
-            },
-            required: ["kind", "text"],
-          },
-        },
-      },
-      required: ["read", "points"],
-    },
+    schema: TOOL_SCHEMAS.notes,
   });
   return {
     read: (out.read ?? "").trim(),
@@ -217,22 +308,10 @@ Réplique à retoucher : « ${input.line} »`;
   const out = await callTool<RetoucheOutput>({
     system,
     user,
+    op: "retoucher",
     toolName: "retoucher",
     maxTokens: 900,
-    schema: {
-      type: "object",
-      properties: {
-        variants: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: { text: { type: "string" }, note: { type: "string" } },
-            required: ["text"],
-          },
-        },
-      },
-      required: ["variants"],
-    },
+    schema: TOOL_SCHEMAS.retoucher,
   });
   return { variants: (out.variants ?? []).filter((v) => v.text?.trim()).slice(0, 4) };
 }
@@ -276,23 +355,10 @@ Fais la lecture de la voix de ${input.characterName}.`;
   const out = await callTool<VoixOutput>({
     system,
     user,
+    op: "voix",
     toolName: "voix",
     maxTokens: 1400,
-    schema: {
-      type: "object",
-      properties: {
-        read: { type: "string" },
-        points: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: { excerpt: { type: "string" }, note: { type: "string" } },
-            required: ["excerpt", "note"],
-          },
-        },
-      },
-      required: ["read", "points"],
-    },
+    schema: TOOL_SCHEMAS.voix,
   });
   return { read: (out.read ?? "").trim(), points: (out.points ?? []).filter((p) => p.note?.trim()).slice(0, 6) };
 }
@@ -328,22 +394,10 @@ Propose 3 « et si… » qui augmentent la tension.`;
   const out = await callTool<EtSiOutput>({
     system,
     user,
+    op: "etsi",
     toolName: "et_si",
     maxTokens: 900,
-    schema: {
-      type: "object",
-      properties: {
-        ideas: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: { premise: { type: "string" }, why: { type: "string" } },
-            required: ["premise", "why"],
-          },
-        },
-      },
-      required: ["ideas"],
-    },
+    schema: TOOL_SCHEMAS.et_si,
   });
   return { ideas: (out.ideas ?? []).filter((i) => i.premise?.trim()).slice(0, 4) };
 }
@@ -371,22 +425,10 @@ Translate every item's "t" into ${toName}. Return the same keys.`;
   const out = await callTool<TraduireOutput>({
     system,
     user,
+    op: "traduire",
     toolName: "traduction",
     maxTokens: 8000,
-    schema: {
-      type: "object",
-      properties: {
-        items: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: { k: { type: "string" }, t: { type: "string" } },
-            required: ["k", "t"],
-          },
-        },
-      },
-      required: ["items"],
-    },
+    schema: TOOL_SCHEMAS.traduction,
   });
   return { items: Array.isArray(out.items) ? out.items : [] };
 }

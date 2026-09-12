@@ -49,6 +49,14 @@ streams NDJSON (heartbeats then a final `{result}` line) so long Opus calls surv
 proxy timeout. The model id is pinned in one place; see `evals/goldens.md` before bumping
 it.
 
+**Craft corpus.** Every Atelier call carries a curated subset of the
+[screenwriting-skills](https://github.com/jtydhr88/screenwriting-skills) (dialogue, scene
+craft, character & conflict, Chekhov, structure, premise/theme) as cached system blocks
+ahead of the task prompt — the model reads your scene through McKee, Egri, Lu Jun and
+Chekhov without ever quoting them. Vendored under `netlify/functions/lib/corpus/`,
+`npm run corpus:sync` refreshes it from `~/.claude/skills`. Details, sizes and the
+cache layout: [`docs/CRAFT_CORPUS.md`](docs/CRAFT_CORPUS.md).
+
 ## AI conduct
 
 Follows the atelier's shared [Conduite AI](../_CONDUITE_AI.md): draft-not-verdict labels

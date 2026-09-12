@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "netlify dev",
     "dev:vite": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/corpus-build.mjs && tsc -b && vite build",
+    "corpus:sync": "node scripts/corpus-sync.mjs",
+    "corpus:build": "node scripts/corpus-build.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
