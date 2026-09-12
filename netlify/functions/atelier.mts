@@ -1,17 +1,21 @@
 import type { Context } from "@netlify/functions";
 import {
+  DRAMATURGE_MAX_PLAY,
+  DRAMATURGE_MAX_QUESTION,
+  dramaturge,
   dramaturgie,
   etsi,
   relance,
   retoucher,
   traduire,
   voix,
+  type DramaturgeTurn,
   type Lang,
   type RetoucheMode,
 } from "./lib/dramaturge.ts";
 
 interface Body {
-  op?: "relance" | "dramaturgie" | "traduire" | "retoucher" | "voix" | "etsi";
+  op?: "relance" | "dramaturgie" | "traduire" | "retoucher" | "voix" | "etsi" | "dramaturge";
   lang?: Lang;
   from?: Lang;
   to?: Lang;
@@ -22,6 +26,11 @@ interface Body {
   line?: string;
   mode?: RetoucheMode;
   lines?: string[];
+  // dramaturge
+  question?: string;
+  play?: string;
+  title?: string;
+  history?: DramaturgeTurn[];
 }
 
 const errJson = (data: unknown, status = 200) =>
@@ -63,6 +72,11 @@ export default async (req: Request, _context: Context) => {
     }
   } else if (body.op === "etsi") {
     if (!body.scene?.trim()) return errJson({ error: "Need a scene." }, 400);
+  } else if (body.op === "dramaturge") {
+    if (!body.question?.trim() || !body.play?.trim()) return errJson({ error: "Need a question and the play." }, 400);
+    if (body.question.length > DRAMATURGE_MAX_QUESTION) return errJson({ error: "Question too long." }, 400);
+    if (body.play.length > DRAMATURGE_MAX_PLAY) return errJson({ error: "Play too long — ask about one scene." }, 400);
+    if (body.history !== undefined && !Array.isArray(body.history)) return errJson({ error: "Bad history." }, 400);
   } else {
     return errJson({ error: "Unknown op" }, 400);
   }
@@ -106,6 +120,15 @@ export default async (req: Request, _context: Context) => {
           result = await voix({ lang, characterName: body.characterName!, lines: body.lines! });
         } else if (body.op === "etsi") {
           result = await etsi({ lang, scene: body.scene! });
+        } else if (body.op === "dramaturge") {
+          result = await dramaturge({
+            lang,
+            question: body.question!.trim(),
+            play: body.play!,
+            title: body.title,
+            cast: Array.isArray(body.cast) ? body.cast : [],
+            history: body.history,
+          });
         } else {
           const from: Lang = body.from === "en" ? "en" : "fr";
           const to: Lang = body.to === "en" ? "en" : from === "fr" ? "en" : "fr";

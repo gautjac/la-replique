@@ -13,10 +13,10 @@ import {
 import { CORPUS_DIGEST, CORPUS_FILES, CORPUS_MANIFEST, CORPUS_PREAMBLE } from "./corpus.generated.ts";
 
 const corpusDir = path.join(__dirname, "corpus");
-const OPS: AtelierOp[] = ["relance", "dramaturgie", "traduire", "retoucher", "voix", "etsi"];
+const OPS: AtelierOp[] = ["relance", "dramaturgie", "traduire", "retoucher", "voix", "etsi", "dramaturge"];
 
 describe("craft corpus — vendored files", () => {
-  it("covers exactly the six Atelier ops", () => {
+  it("covers exactly the seven Atelier ops", () => {
     expect([...ATELIER_OPS].sort()).toEqual([...OPS].sort());
   });
 
@@ -107,13 +107,15 @@ describe("craft corpus — system blocks", () => {
     expect(filesFor("dramaturgie")).toContain("sw-story-structure/SKILL.md");
     expect(filesFor("etsi")).toContain("sw-premise-theme/SKILL.md");
     expect(filesFor("voix")).toContain("sw-character-conflict/reference.md");
+    expect(filesFor("dramaturge")).toContain("sw-premise-theme/SKILL.md");
+    expect(filesFor("dramaturge")).toContain("chekhov-dramaturgy/SKILL.md");
     for (const op of OPS) expect(filesFor(op).slice(0, 4)).toEqual([...CORPUS_MANIFEST.core]);
   });
 
   it("keeps the whole prompt under a sane ceiling (≈1 token per char in this corpus)", () => {
     for (const op of OPS) {
       const chars = craftSystem(op, "").reduce((n, b) => n + b.text.length, 0);
-      expect(chars, op).toBeLessThan(90_000);
+      expect(chars, op).toBeLessThan(100_000);
     }
   });
 });
@@ -121,7 +123,7 @@ describe("craft corpus — system blocks", () => {
 describe("tool list — part of the cache prefix", () => {
   it("is one fixed list in a stable order with every op's schema", async () => {
     const { TOOLS, TOOL_SCHEMAS } = await import("./dramaturge.ts");
-    expect(TOOLS.map((t) => t.name)).toEqual(["proposer_replique", "notes", "retoucher", "voix", "et_si", "traduction"]);
+    expect(TOOLS.map((t) => t.name)).toEqual(["proposer_replique", "notes", "retoucher", "voix", "et_si", "traduction", "reponse"]);
     for (const t of TOOLS) {
       expect(t.input_schema).toBe(TOOL_SCHEMAS[t.name as keyof typeof TOOL_SCHEMAS]);
       expect(t.input_schema.type).toBe("object");

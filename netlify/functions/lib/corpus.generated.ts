@@ -38,7 +38,14 @@ export const CORPUS_MANIFEST = {
       "sw-story-structure/SKILL.md",
       "sw-premise-theme/SKILL.md"
     ],
-    "traduire": []
+    "traduire": [],
+    "dramaturge": [
+      "sw-scene-craft/reference.md",
+      "sw-character-conflict/reference.md",
+      "chekhov-dramaturgy/SKILL.md",
+      "sw-story-structure/SKILL.md",
+      "sw-premise-theme/SKILL.md"
+    ]
   }
 } as const;
 

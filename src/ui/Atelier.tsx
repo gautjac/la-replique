@@ -1,5 +1,6 @@
-import { useMemo, useRef, useState } from "react";
-import { atelier, type DramaturgieRes, type EtSiRes, type RelanceRes, type VoixRes } from "../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { atelier, type DramaturgeRes, type DramaturgieRes, type EtSiRes, type RelanceRes, type VoixRes } from "../api";
+import { answerBlocks, starterQuestions, threadToHistory } from "../dramaturge";
 import { useUI } from "../i18n";
 import { characterById, sceneElements, sceneRange } from "../model";
 import { elementsToScript } from "../export";
@@ -8,15 +9,22 @@ import { applyBundle, applySurtitles, buildBundle } from "../translate";
 import type { CueEl, Element, Play } from "../types";
 import { GhostDots } from "./common";
 
-type Tool = "relance" | "etsi" | "dramaturgie" | "voix" | "traduire";
+type Tool = "relance" | "etsi" | "dramaturgie" | "voix" | "traduire" | "dramaturge";
 
-const TOOL_LABEL: Record<Tool, "aiRelance" | "aiEtSi" | "aiDramaturgie" | "aiVoix" | "aiTraduire"> = {
+const TOOL_LABEL: Record<Tool, "aiRelance" | "aiEtSi" | "aiDramaturgie" | "aiVoix" | "aiTraduire" | "aiDramaturge"> = {
   relance: "aiRelance",
   etsi: "aiEtSi",
   dramaturgie: "aiDramaturgie",
   voix: "aiVoix",
   traduire: "aiTraduire",
+  dramaturge: "aiDramaturge",
 };
+
+export interface DramaturgeTurnUI {
+  role: "user" | "assistant";
+  text: string;
+  followups?: string[];
+}
 
 interface AtelierProps {
   play: Play;
@@ -49,10 +57,21 @@ export function Atelier({ play, commit, onCreatePlay, onToast }: AtelierProps) {
   const [sceneKey, setSceneKey] = useState<string>(scenes[scenes.length - 1]?.key ?? "all");
   const activeScene = scenes.find((s) => s.key === sceneKey) ?? scenes[scenes.length - 1];
 
+  // The dramaturg thread lives here (not in the tool) so switching tabs keeps it;
+  // it resets when the play changes.
+  const [thread, setThread] = useState<DramaturgeTurnUI[]>([]);
+  const threadPlayId = useRef(play.id);
+  useEffect(() => {
+    if (threadPlayId.current !== play.id) {
+      threadPlayId.current = play.id;
+      setThread([]);
+    }
+  }, [play.id]);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap gap-1.5 rounded-xl bg-desk p-1 ring-1 ring-desk-rule">
-        {(["relance", "etsi", "dramaturgie", "voix", "traduire"] as Tool[]).map((tl) => (
+        {(["relance", "etsi", "dramaturgie", "voix", "traduire", "dramaturge"] as Tool[]).map((tl) => (
           <button
             key={tl}
             onClick={() => setTool(tl)}
@@ -90,6 +109,7 @@ export function Atelier({ play, commit, onCreatePlay, onToast }: AtelierProps) {
       {tool === "dramaturgie" && <DramaturgieTool play={play} scene={activeScene} />}
       {tool === "voix" && <VoixTool play={play} />}
       {tool === "traduire" && <TraduireTool play={play} commit={commit} onCreatePlay={onCreatePlay} onToast={onToast} />}
+      {tool === "dramaturge" && <DramaturgeTool play={play} scenes={scenes} thread={thread} setThread={setThread} />}
 
       <p className="border-t border-desk-rule pt-4 text-xs leading-relaxed text-ink-faint">{t("aiWhatItDoes")}</p>
     </div>
@@ -582,6 +602,200 @@ function TraduireTool({ play, commit, onCreatePlay, onToast }: { play: Play; com
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ————————————————————————————————————————————————————————————————
+// Dramaturge — a threaded Q&A about the play (or one scene).
+function DramaturgeTool({
+  play,
+  scenes,
+  thread,
+  setThread,
+}: {
+  play: Play;
+  scenes: SceneRef[];
+  thread: DramaturgeTurnUI[];
+  setThread: (t: DramaturgeTurnUI[]) => void;
+}) {
+  const { t, locale } = useUI();
+  const r = useRunner();
+  const [ctx, setCtx] = useState<string>("all"); // "all" = the whole play, else a scene key
+  const [question, setQuestion] = useState("");
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const hasScenes = scenes.length > 0 && scenes[0].key !== "all";
+  const contextText = useMemo(() => {
+    if (ctx === "all") return elementsToScript(play, play.elements);
+    const sc = scenes.find((s) => s.key === ctx);
+    return sc ? elementsToScript(play, sceneElements(play, sc.headingIndex)) : elementsToScript(play, play.elements);
+  }, [ctx, play, scenes]);
+
+  const canRun = play.elements.some((e) => e.type === "cue" || e.type === "stage");
+  const castNames = play.characters.map((c) => c.name);
+  const starters = starterQuestions(t, castNames);
+  const lastFollowups = thread.length ? thread[thread.length - 1].followups ?? [] : [];
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [thread.length, r.busy]);
+
+  const ask = async (q: string) => {
+    const text = q.trim();
+    if (!text || r.busy || !canRun) return;
+    const history = threadToHistory(thread);
+    const next: DramaturgeTurnUI[] = [...thread, { role: "user", text }];
+    setThread(next);
+    setQuestion("");
+    r.setError("");
+    r.setBusy(true);
+    const stages = [t("aiStageRereading"), t("aiStageAnswering")];
+    let si = 0;
+    r.setStage(stages[0]);
+    r.abort.current = new AbortController();
+    try {
+      const res = await atelier<DramaturgeRes>(
+        { op: "dramaturge", lang: play.lang, question: text, play: contextText, title: play.title, cast: castNames, history },
+        {
+          signal: r.abort.current.signal,
+          onHeartbeat: () => {
+            si = Math.min(si + 1, stages.length - 1);
+            r.setStage(stages[si]);
+          },
+        },
+      );
+      setThread([...next, { role: "assistant", text: res.answer, followups: res.followups }]);
+    } catch {
+      r.setError(t("aiError"));
+      setThread(thread); // drop the unanswered question so it can be retried
+      setQuestion(text);
+    } finally {
+      r.setBusy(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const chip = (q: string, i: number) => (
+    <button
+      key={i}
+      onClick={() => ask(q)}
+      disabled={r.busy || !canRun}
+      className="rounded-full bg-desk px-3 py-1.5 text-left text-xs text-ink-faint ring-1 ring-desk-rule transition hover:text-white hover:ring-gel disabled:opacity-40"
+    >
+      {q}
+    </button>
+  );
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-ink-faint">{t("aiDramaturgeDesc")}</p>
+
+      <label className="block">
+        <span className="mb-1 block text-xs text-ink-faint">{t("aiDramaturgeContext")}</span>
+        <select
+          value={ctx}
+          onChange={(e) => setCtx(e.target.value)}
+          className="w-full rounded-lg bg-desk px-3 py-2 text-sm text-white outline-none ring-1 ring-desk-rule focus:ring-gel"
+        >
+          <option value="all">{t("aiWholePlay")}</option>
+          {hasScenes &&
+            scenes.map((s) => (
+              <option key={s.key} value={s.key}>
+                {s.label}
+              </option>
+            ))}
+        </select>
+      </label>
+
+      {!canRun && <p className="rounded-lg bg-desk p-3 text-xs text-ink-faint ring-1 ring-desk-rule">{t("aiNeedScene")}</p>}
+
+      {thread.length === 0 && canRun && (
+        <div className="space-y-2">
+          <span className="block text-xs text-ink-faint">{t("aiDramaturgeStarters")}</span>
+          <div className="flex flex-wrap gap-2">{starters.map(chip)}</div>
+        </div>
+      )}
+
+      {thread.length > 0 && (
+        <div className="space-y-3">
+          {thread.map((turn, i) =>
+            turn.role === "user" ? (
+              <div key={i} className="ml-6 rounded-xl bg-desk-light p-3 ring-1 ring-desk-rule">
+                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-ink-faint">{t("aiDramaturgeYou")}</div>
+                <p className="whitespace-pre-wrap text-sm text-white">{turn.text}</p>
+              </div>
+            ) : (
+              <div key={i} className="rise mr-6 space-y-2 rounded-xl bg-desk p-4 ring-1 ring-gel/40">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-wide text-gel-bright">{t("aiDramaturgeHim")}</span>
+                  <DraftBadge />
+                </div>
+                {answerBlocks(turn.text).map((b, j) =>
+                  b.kind === "p" ? (
+                    <p key={j} className="text-[15px] leading-relaxed text-white">
+                      {b.text}
+                    </p>
+                  ) : (
+                    <ul key={j} className="list-disc space-y-1 pl-5 text-[15px] leading-relaxed text-white">
+                      {b.items.map((it, k) => (
+                        <li key={k}>{it}</li>
+                      ))}
+                    </ul>
+                  ),
+                )}
+              </div>
+            ),
+          )}
+          {!r.busy && lastFollowups.length > 0 && (
+            <div className="space-y-2">
+              <span className="block text-xs text-ink-faint">{t("aiDramaturgeFollowups")}</span>
+              <div className="flex flex-wrap gap-2">{lastFollowups.map(chip)}</div>
+            </div>
+          )}
+          <div ref={endRef} />
+        </div>
+      )}
+
+      {r.busy && <Waiting stage={r.stage} />}
+      {r.error && <p className="rounded-lg bg-rose/10 p-3 text-sm text-rose ring-1 ring-rose/30">{r.error}</p>}
+
+      <div className="rounded-xl bg-desk p-2 ring-1 ring-desk-rule focus-within:ring-gel">
+        <textarea
+          ref={inputRef}
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              ask(question);
+            }
+          }}
+          placeholder={t("aiDramaturgePlaceholder")}
+          rows={2}
+          maxLength={2000}
+          disabled={!canRun}
+          className="block w-full resize-none bg-transparent px-2 py-1.5 text-sm text-white outline-none placeholder:text-ink-faint"
+        />
+        <div className="flex items-center justify-between gap-2 px-1">
+          {thread.length > 0 ? (
+            <button onClick={() => { setThread([]); r.setError(""); }} disabled={r.busy} className="text-xs text-ink-faint hover:text-white disabled:opacity-40">
+              {t("aiDramaturgeClear")}
+            </button>
+          ) : (
+            <span className="text-[11px] text-ink-faint">{locale === "fr" ? "Entrée pour envoyer · Maj+Entrée pour une ligne" : "Enter to send · Shift+Enter for a new line"}</span>
+          )}
+          <button
+            onClick={() => ask(question)}
+            disabled={r.busy || !canRun || !question.trim()}
+            className="rounded-lg bg-gel px-3.5 py-1.5 text-sm font-semibold text-white shadow-gel transition hover:bg-gel-bright disabled:opacity-40 disabled:shadow-none"
+          >
+            {t("aiDramaturgeSend")}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

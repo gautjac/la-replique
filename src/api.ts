@@ -1,7 +1,7 @@
 // Client for the Atelier endpoint. Opus calls stream NDJSON: blank-line heartbeats
 // while the model thinks, then a final {"result": ...} line. We read the last JSON line.
 
-export type AtelierOp = "relance" | "dramaturgie" | "traduire" | "retoucher" | "voix" | "etsi";
+export type AtelierOp = "relance" | "dramaturgie" | "traduire" | "retoucher" | "voix" | "etsi" | "dramaturge";
 
 export interface ElevenVoice {
   id: string;
@@ -113,7 +113,27 @@ export interface EtSiRes {
   ideas: { premise: string; why: string }[];
 }
 
-type ReqOf<T> = T extends RelanceRes
+export interface DramaturgeTurn {
+  role: "user" | "assistant";
+  text: string;
+}
+export interface DramaturgeReq {
+  op: "dramaturge";
+  lang: "fr" | "en";
+  question: string;
+  play: string; // the play (or one scene) as script text
+  title?: string;
+  cast?: string[];
+  history?: DramaturgeTurn[]; // earlier exchanges, oldest first, without the current question
+}
+export interface DramaturgeRes {
+  answer: string; // plain text; blank-line paragraphs; "- " bullets
+  followups: string[];
+}
+
+type ReqOf<T> = T extends DramaturgeRes
+  ? DramaturgeReq
+  : T extends RelanceRes
   ? RelanceReq
   : T extends DramaturgieRes
     ? DramaturgieReq
@@ -129,7 +149,7 @@ type ReqOf<T> = T extends RelanceRes
  * POST to /api/atelier and read an NDJSON stream. `onHeartbeat` fires on each
  * keepalive so the UI can advance its staged-wait labels.
  */
-export async function atelier<Res extends RelanceRes | DramaturgieRes | TraduireRes | RetoucheRes | VoixRes | EtSiRes>(
+export async function atelier<Res extends RelanceRes | DramaturgieRes | TraduireRes | RetoucheRes | VoixRes | EtSiRes | DramaturgeRes>(
   body: ReqOf<Res>,
   opts?: { signal?: AbortSignal; onHeartbeat?: () => void },
 ): Promise<Res> {

@@ -4,8 +4,20 @@
     {
       "name": "la-replique-vite",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:vite"],
+      "runtimeArgs": [
+        "run",
+        "dev:vite"
+      ],
       "port": 5173
+    },
+    {
+      "name": "la-replique-netlify",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "netlify",
+        "dev"
+      ],
+      "port": 3260
     }
   ]
 }

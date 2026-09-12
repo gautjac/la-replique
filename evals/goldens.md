@@ -138,6 +138,22 @@ Qualities:
   a three-act reading onto a two-page scene.
 - Relance still returns spoken words only; the corpus must not make it verbose.
 
+## 11. Dramaturge — threaded Q&A (FR)
+
+Input: the reunion scene (§9) as the whole play, title « La porte ». Q1: « Qu'est-ce qu'Alice
+veut vraiment ici ? » then Q2 = the first suggested follow-up, with Q1+A1 as `history`.
+
+Qualities:
+- A1 answers THE question about THESE pages: quotes real fragments (« ça veut rien dire »,
+  « T'aurais dû prévenir »), reads the want under the words, 2–5 short paragraphs, no lecture.
+- Names a risk or a cost as a reading, not an order (« le danger, dramaturgiquement, ce serait… »).
+- `followups`: 2–3 questions specific to this play (not « veux-tu en savoir plus ? »).
+- A2 builds on A1 (references the thread) and still points at the text; says « d'après les
+  pages » / « le texte ne le dit pas » rather than inventing off-page facts.
+- No flattery opener; French without franglais; no Chinese; no book or author names.
+- Function log: Q2 `cache_read_input_tokens` ≈ corpus + play (≈86 K), `cache_creation` = 0.
+- If asked for lines, at most a couple, framed as a throwaway sketch, with the why.
+
 ### How to run
 `npm run dev` (netlify dev with `CLAUDE_API_KEY` set) or hit the deployed
 `/api/atelier`. POST bodies mirror `src/api.ts` (`RelanceReq` / `DramaturgieReq` /

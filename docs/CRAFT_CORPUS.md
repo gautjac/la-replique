@@ -32,12 +32,18 @@ for this corpus):
 | + dramaturgie extras (scene ref, character ref, Chekhov, structure) | ≈79 K |
 | + etsi extras (scene ref, structure, premise/theme) | ≈60 K |
 | traduire (core only) | ≈34 K |
+| + dramaturge extras (scene ref, character ref, Chekhov, structure, premise/theme) | ≈84 K |
 
 Cache reads cost ~0.1× input; a 1-hour write costs 2×. The TTL is 1h because a
 writing session has gaps longer than 5 minutes between Atelier calls (set
 `ATELIER_CACHE_TTL=5m` in the Netlify env to change it). The function logs one
 line per call — `{"atelier":"relance","usage":{…cache_read_input_tokens…}}` — so a
 cache miss is visible in the Netlify function log.
+
+**Dramaturge (threaded Q&A)** adds a third breakpoint: the play text rides in the first user
+turn with its own `cache_control`, so follow-up questions on an unchanged play re-read
+corpus + play from cache (measured: Q2 read 86 K, wrote 0). Earlier turns are replayed as
+plain messages, capped at 12 (`trimHistory`).
 
 The **PREAMBLE** (`netlify/functions/lib/corpus/PREAMBLE.md`) tells the model what
 the library is for: it sets standards, it is never quoted or cited, the answer is

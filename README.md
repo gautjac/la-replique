@@ -25,6 +25,9 @@ subtext, La Réplique is where the script gets *written*.
   - **Lecture dramaturgique** — an honest, no-flattery read of a scene *(artifact)*.
   - **Traduire** — a playable FR ↔ EN translation that keeps the structure, created as a
     **new** play so your original is never touched *(preview-before-apply)*.
+  - **Dramaturge** — ask the dramaturg anything about the play or one scene, in a thread:
+    what a character wants, where a scene sags, whether the ending is earned. Starter
+    questions when the box is empty, follow-ups after each answer *(threaded Q&A)*.
 - **Exports.** Print / PDF (clean stage manuscript), plain-text `.txt`, and a `.json`
   backup you can re-import.
 
