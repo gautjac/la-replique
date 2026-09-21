@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./index.css";
 import { Lire } from "./lire/Lire";
 import { Landing } from "./Landing";
+import { Passerelle } from "./lire/Passerelle";
 
 // The web is READ-ONLY: a landing + the /lire reading viewer. All writing happens
 // in the native iOS/macOS app (synced via CloudKit). The former web editor
@@ -17,6 +18,20 @@ if (path.startsWith("/lire/")) {
   root.render(
     <StrictMode>
       <Lire id={id} />
+    </StrictMode>,
+  );
+} else if (path.startsWith("/connexion")) {
+  // Where an emailed sign-in link lands: copy it back into the app.
+  root.render(
+    <StrictMode>
+      <Passerelle kind="connexion" />
+    </StrictMode>,
+  );
+} else if (path.startsWith("/rejoindre/")) {
+  // An invitation to write together: shows the code to enter in the app.
+  root.render(
+    <StrictMode>
+      <Passerelle kind="rejoindre" code={decodeURIComponent(path.slice("/rejoindre/".length).replace(/\/$/, ""))} />
     </StrictMode>,
   );
 } else {
