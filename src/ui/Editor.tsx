@@ -21,6 +21,15 @@ interface EditorProps {
   onJumped?: () => void;
   focusMode?: boolean;
   showAlt?: boolean;
+  // — writing together (all optional; the solo editor passes none) —
+  /** Other people in this shared play, by the element their cursor is in. */
+  others?: Record<string, { name: string; color: string }[]>;
+  /** The cursor moved into a block. */
+  onFocusElement?: (id: string) => void;
+  /** Readers and commenters watch the script move; they don't type in it. */
+  readOnly?: boolean;
+  /** Hide the AI retouch (it spends the site owner's API key). */
+  noAI?: boolean;
 }
 
 interface FocusReq {
@@ -28,7 +37,7 @@ interface FocusReq {
   at: number; // nonce so repeated focus of same id still fires
 }
 
-export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAlt }: EditorProps) {
+export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAlt, others, onFocusElement, readOnly, noAI }: EditorProps) {
   const { t } = useUI();
   const fieldRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const [focusReq, setFocusReq] = useState<FocusReq | null>(null);
@@ -126,7 +135,9 @@ export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAl
 
   return (
     <div className="no-print mx-auto w-full max-w-[52rem] px-4 pb-40 pt-8 sm:px-8">
-      <TitleBlock play={play} commit={commit} />
+      <fieldset disabled={readOnly} className="m-0 min-w-0 border-0 p-0">
+        <TitleBlock play={play} commit={commit} />
+      </fieldset>
 
       <div className={`script mt-6 rounded-xl bg-paper px-6 py-8 text-ink shadow-page sm:px-12 sm:py-12 ${focusMode ? "focus-mode" : ""}`}>
         {play.elements.length === 0 ? (
@@ -141,9 +152,21 @@ export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAl
           </div>
         ) : (
           <div>
-            {play.elements.map((el) => (
+            {play.elements.map((el) => {
+              const here = others?.[el.id] ?? [];
+              // Soft lock: while someone else is in this line you can watch it change,
+              // not type in it — unless you were there first (then last writer wins).
+              const locked = !!readOnly || (here.length > 0 && activeId !== el.id);
+              return (
+              <div key={el.id} className="relative">
+                {here.length > 0 && <span aria-hidden className="absolute -left-3 bottom-1 top-1 w-[3px] rounded" style={{ background: here[0].color }} />}
+                {here.length > 0 && (
+                  <span className="pointer-events-none absolute -bottom-1 right-0 z-10 rounded-full px-1.5 py-px font-sans text-[10px] font-bold text-white" style={{ background: here[0].color }}>
+                    {here.map((o) => o.name).join(", ")}
+                  </span>
+                )}
+                <fieldset disabled={locked} className="m-0 min-w-0 border-0 p-0">
               <ElementRow
-                key={el.id}
                 el={el}
                 play={play}
                 register={register}
@@ -156,10 +179,14 @@ export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAl
                 renameCharacter={(cid, name) => commit(updateCharacter(play, cid, { name }))}
                 speakerTypeAhead={speakerTypeAhead}
                 activeId={activeId}
-                onActivate={setActiveId}
+                onActivate={(id) => { setActiveId(id); onFocusElement?.(id); }}
                 showAlt={showAlt}
+                noAI={noAI}
               />
-            ))}
+                </fieldset>
+              </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -213,6 +240,7 @@ interface RowProps {
   activeId: string | null;
   onActivate: (id: string) => void;
   showAlt?: boolean;
+  noAI?: boolean;
 }
 
 /** The wrapping class for each element row — drives focus-mode dimming. */
@@ -360,7 +388,7 @@ function ElementRow(props: RowProps) {
           }`}
           aria-label={t("parenthetical")}
         />
-        {el.text.trim() && character && <RetouchePopover play={props.play} el={el} characterName={character.name} onReplace={(text) => props.setText(el.id, { text } as Partial<Element>)} />}
+        {!props.noAI && el.text.trim() && character && <RetouchePopover play={props.play} el={el} characterName={character.name} onReplace={(text) => props.setText(el.id, { text } as Partial<Element>)} />}
       </div>
       <AutoTextarea
         ref={(n) => props.register(el.id, n)}

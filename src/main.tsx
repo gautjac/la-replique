@@ -20,6 +20,16 @@ if (path.startsWith("/lire/")) {
       <Lire id={id} />
     </StrictMode>,
   );
+} else if (path === "/ecrire" || path.startsWith("/ecrire/")) {
+  // Writing together, in a browser. Loaded on demand: the landing and the reader
+  // don't carry Firebase or the editor.
+  void import("./collab/Ecrire").then(({ Ecrire }) =>
+    root.render(
+      <StrictMode>
+        <Ecrire path={path} />
+      </StrictMode>,
+    ),
+  );
 } else if (path.startsWith("/connexion")) {
   // Where an emailed sign-in link lands: copy it back into the app.
   root.render(

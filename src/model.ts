@@ -14,7 +14,9 @@ import { CAST_SWATCHES } from "./types";
 
 export function uid(): string {
   try {
-    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
+    // UPPERCASE on purpose: the native app's UUID strings are uppercase, and in a shared
+    // play an id is a document key — "abc…" and "ABC…" would be two different lines.
+    if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID().toUpperCase();
   } catch {
     /* fall through */
   }

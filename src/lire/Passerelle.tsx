@@ -2,7 +2,7 @@
 //   /connexion        where an emailed sign-in link lands — copy it back into the app
 //   /rejoindre/<code> an invitation — shows the code to type into the app
 // (A full web editor will take over /rejoindre later; until then the app is the way in.)
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useReaderLang } from "./strings";
 
 const APP_STORE_URL = "https://apps.apple.com/app/id6790472715";
@@ -13,6 +13,16 @@ export function Passerelle({ kind, code }: { kind: "connexion" | "rejoindre"; co
   const fr = lang === "fr";
   const value = kind === "connexion" ? window.location.href : (code ?? "").toUpperCase();
   const isLink = kind === "connexion" && /[?&]oobCode=/.test(window.location.href);
+
+  // If THIS browser asked for the emailed link (from /ecrire), finish signing in
+  // right here and go back. If the app asked for it, offer "copy this link" below.
+  useEffect(() => {
+    if (!isLink) return;
+    void import("../collab/firebase")
+      .then((fb) => fb.completeEmailLink(window.location.href))
+      .then((back) => { if (back) window.location.replace(back); })
+      .catch(() => undefined);
+  }, [isLink]);
 
   const copy = async () => {
     try {
@@ -72,6 +82,12 @@ export function Passerelle({ kind, code }: { kind: "connexion" | "rejoindre"; co
               {copied ? (fr ? "Copié" : "Copied") : kind === "rejoindre" ? (fr ? "Copier le code" : "Copy the code") : fr ? "Copier le lien" : "Copy the link"}
             </button>
           </div>
+        )}
+
+        {kind === "rejoindre" && value && (
+          <a href={`/ecrire?code=${encodeURIComponent(value)}`} className="mt-3 block w-full rounded-lg border border-desk-rule px-4 py-2.5 text-center text-sm font-semibold hover:border-gel-bright">
+            {fr ? "Pas sur iPhone, iPad ou Mac ? Écrire dans le navigateur" : "Not on iPhone, iPad or Mac? Write in the browser"}
+          </a>
         )}
 
         <p className="mt-8 text-sm text-ink-faint">
