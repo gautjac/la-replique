@@ -56,6 +56,7 @@ export function useComments(backend: Backend, shareID: string, initial: PlayMeta
 
   useEffect(() => {
     if (!open) return;
+    if (backend.subscribe) return backend.subscribe(shareID, setComments);   // live: no polling
     void refresh();
     const timer = window.setInterval(() => document.visibilityState === "visible" && void refresh(), POLL_MS);
     const onVisible = () => document.visibilityState === "visible" && void refresh();
@@ -64,7 +65,7 @@ export function useComments(backend: Backend, shareID: string, initial: PlayMeta
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [open, refresh]);
+  }, [open, refresh, backend, shareID]);
 
   const threads = useMemo(() => buildThreads(comments, meta, elementIDs), [comments, meta, elementIDs]);
 
@@ -95,7 +96,8 @@ export function useComments(backend: Backend, shareID: string, initial: PlayMeta
     async post(d) {
       try {
         const saved = await backend.post({ ...d, shareID });
-        setComments((cs) => [...cs, saved]);
+        // With a live listener the same note may already be here — never twice.
+        setComments((cs) => (cs.some((x) => x.id === saved.id) ? cs : [...cs, saved]));
         return true;
       } catch (e) {
         fail(e);
@@ -114,6 +116,11 @@ export function useComments(backend: Backend, shareID: string, initial: PlayMeta
 
     async hide(c) {
       try {
+        if (backend.hide) {
+          await backend.hide(c);
+          setComments((cs) => cs.filter((x) => x.id !== c.id && x.parentID !== c.id));
+          return;
+        }
         await ownerPatch((m) => ({ hidden: [...new Set([...m.hidden, c.id])] }));
       } catch (e) {
         fail(e);
@@ -124,8 +131,8 @@ export function useComments(backend: Backend, shareID: string, initial: PlayMeta
       const authorFlag = !t.rootDeleted && t.root.resolved;
       const ownerFlag = meta.resolved.includes(threadKey(t));
       if (!authorFlag && !ownerFlag) return false;
-      if (authorFlag && viewer !== t.root.creator) return false;
-      if (ownerFlag && viewer !== meta.owner) return false;
+      if (authorFlag && viewer !== t.root.creator && !meta.moderator) return false;
+      if (ownerFlag && viewer !== meta.owner && !meta.moderator) return false;
       return true;
     },
 
@@ -133,6 +140,12 @@ export function useComments(backend: Backend, shareID: string, initial: PlayMeta
       try {
         const key = threadKey(t);
         const mine = !t.rootDeleted && viewer === t.root.creator;
+        if (meta.moderator && !t.rootDeleted) {
+          // Shared play: `resolved` is a field on the note; its author and every writer may set it.
+          const saved = await backend.setResolvedByAuthor(t.root, resolved);
+          setComments((cs) => cs.map((x) => (x.id === saved.id ? saved : x)));
+          return;
+        }
         if (resolved) {
           if (mine) {
             const saved = await backend.setResolvedByAuthor(t.root, true);

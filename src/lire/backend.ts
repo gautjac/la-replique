@@ -38,6 +38,10 @@ export interface Backend {
   setResolvedByAuthor(c: CommentRec, resolved: boolean): Promise<CommentRec>;
   /** The play's owner updates the resolved / hidden lists on their PublicPlay record. */
   ownerUpdate(shareID: string, meta: PlayMeta, patch: { resolved?: string[]; hidden?: string[] }): Promise<PlayMeta>;
+  /** A moderator hides someone's note (shared plays). */
+  hide?(c: CommentRec): Promise<void>;
+  /** Live updates, when the home supports them; otherwise the hook polls. */
+  subscribe?(shareID: string, onChange: (list: CommentRec[]) => void): () => void;
 }
 
 export const SIGN_IN_ID = "apple-sign-in-button";

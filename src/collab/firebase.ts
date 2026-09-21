@@ -187,6 +187,12 @@ export async function myRole(playID: string): Promise<string | null> {
   return s?.exists() ? String(s.get("role")) : null;
 }
 
+export async function playOwner(playID: string): Promise<string> {
+  boot();
+  const d = await getDoc(doc(db, "plays", playID)).catch(() => null);
+  return d?.exists() ? String(d.get("ownerUid") ?? "") : "";
+}
+
 export type JoinError = "bad" | "expired";
 /** Accepts a bare code or a whole invitation link. Returns the play id. */
 export async function join(raw: string, name: string): Promise<string> {

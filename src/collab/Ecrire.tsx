@@ -6,9 +6,14 @@ import { STRINGS, UIContext, type Locale, type UIKey } from "../i18n";
 import type { Play } from "../types";
 import { CastPanel } from "../ui/CastPanel";
 import { Editor } from "../ui/Editor";
+import { GENERAL, threadsFor, type PlayMeta } from "../lire/comments";
+import { ThreadCard, ThreadStack, type NotesCtx } from "../lire/Notes";
+import { strings } from "../lire/strings";
+import { useComments } from "../lire/useComments";
 import { CollabCore } from "./core";
+import { notesBackend } from "./notesBackend";
 import {
-  EMULATOR, fetchAll, join, listen, myPlays, myRole, presence, rename, send, sendEmailLink, signInDemo, signInGoogle,
+  EMULATOR, fetchAll, join, listen, myPlays, myRole, playOwner, presence, rename, send, sendEmailLink, signInDemo, signInGoogle,
   signOutNow, watchAuth, type Other, type Person, type Seat,
 } from "./firebase";
 
@@ -190,6 +195,8 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
   const [role, setRole] = useState<string>("reader");
   const [others, setOthers] = useState<Other[]>([]);
   const [showCast, setShowCast] = useState(false);
+  const [ownerUid, setOwnerUid] = useState("");
+  const [notesFor, setNotesFor] = useState<string | null | undefined>(undefined);   // undefined = closed, null = all
   const core = useRef(new CollabCore());
   const latest = useRef<Play | null>(null);        // the truth, always current
   const rendered = useRef<Play | null>(null);      // what the editor last saw
@@ -208,6 +215,7 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
       if (!alive) return;
       if (!r) return setStatus("stranger");
       setRole(r);
+      void playOwner(playID).then((o) => alive && setOwnerUid(o));
       let all;
       try { all = await fetchAll(playID); } catch { if (alive) setStatus("gone"); return; }
       if (!alive) return;
@@ -267,7 +275,18 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
         <LangToggle locale={locale} setLocale={setLocale} />
       </header>
 
-      <Editor play={play} commit={commit} others={byElement} onFocusElement={(id) => pres.current?.focus(id)} readOnly={!canWrite || status === "gone"} noAI />
+      <RoomNotes playID={playID} role={role} ownerUid={ownerUid} play={play} person={person} locale={locale} openFor={notesFor} onClose={() => setNotesFor(undefined)}>
+        {(counts, total) => (
+          <>
+            <button type="button" onClick={() => setNotesFor(null)}
+              className="no-print fixed right-4 top-14 z-30 rounded-full border border-desk-rule bg-desk-light px-3 py-1.5 text-xs font-semibold shadow-lift hover:border-gel-bright">
+              💬 Notes{total ? ` · ${total}` : ""}
+            </button>
+            <Editor play={play} commit={commit} others={byElement} onFocusElement={(id) => pres.current?.focus(id)}
+              readOnly={!canWrite || status === "gone"} noAI noteCounts={counts} onNotes={role === "reader" ? undefined : (id) => setNotesFor(id)} />
+          </>
+        )}
+      </RoomNotes>
 
       <footer className="no-print fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-desk-rule bg-desk-light px-4 py-1.5 text-xs text-ink-faint">
         <span className={`h-2 w-2 rounded-full ${dot}`} /> <span className="font-medium">{label}</span>
@@ -292,5 +311,88 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
         </div>
       )}
     </div>
+  );
+}
+
+// MARK: notes — the reading page's thread cards and rules, on the shared play's notes
+
+function RoomNotes(props: {
+  playID: string; role: string; ownerUid: string; play: Play; person: Person; locale: Locale;
+  openFor: string | null | undefined; onClose(): void;
+  children: (counts: Record<string, number>, total: number) => React.ReactNode;
+}) {
+  const { play, locale, openFor } = props;
+  const backend = useMemo(() => notesBackend(props.playID, props.role, props.ownerUid), [props.playID, props.role, props.ownerUid]);
+  const meta = useMemo<PlayMeta>(() => ({ commentsOpen: true, resolved: [], hidden: [], owner: props.ownerUid, moderator: props.role === "writer" }), [props.ownerUid, props.role]);
+  const elementIDs = useMemo(() => play.elements.map((e) => e.id), [play.elements]);
+  const api = useComments(backend, props.playID, meta, elementIDs);
+  const [showResolved, setShowResolved] = useState(false);
+  const [name, setName] = useState(props.person.name || props.person.email || "");
+  const canPost = props.role === "writer" || props.role === "commenter";
+  const ctx: NotesCtx = { api: { ...api, meta, identity: canPost ? api.identity : null }, t: strings(locale), lang: locale, demo: false, name, setName, showResolved };
+
+  const counts = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const th of api.threads) if (!th.resolved && !th.detached && th.root.elementID !== GENERAL) m[th.root.elementID] = (m[th.root.elementID] ?? 0) + 1;
+    return m;
+  }, [api.threads]);
+  const total = api.threads.filter((th) => !th.resolved).length;
+
+  const label = (id: string): string => {
+    const el = play.elements.find((e) => e.id === id);
+    if (!el) return "";
+    const who = el.type === "cue" ? play.characters.find((c) => c.id === el.characterId)?.name : undefined;
+    const text = ("text" in el ? el.text : el.label) ?? "";
+    return (who ? `${who} — ` : "") + (text.length > 90 ? text.slice(0, 90) + "…" : text);
+  };
+  const lines = [...new Set(api.threads.filter((th) => !th.detached && th.root.elementID !== GENERAL && (showResolved || !th.resolved)).map((th) => th.root.elementID))]
+    .filter((id) => id !== openFor)
+    .sort((a, b) => elementIDs.indexOf(a) - elementIDs.indexOf(b));
+  const detached = api.threads.filter((th) => th.detached && (showResolved || !th.resolved));
+  const resolvedCount = api.threads.filter((th) => th.resolved).length;
+
+  return (
+    <>
+      {props.children(counts, total)}
+      {openFor !== undefined && (
+        <div className="no-print fixed inset-0 z-40 flex justify-end bg-black/50" onClick={props.onClose}>
+          <aside className="h-full w-full max-w-md overflow-y-auto bg-paper p-5 text-ink" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center gap-3">
+              <h2 className="font-display text-lg font-semibold">Notes</h2>
+              {resolvedCount > 0 && (
+                <button type="button" className="text-sm font-medium text-gel-deep hover:underline" onClick={() => setShowResolved((v) => !v)}>
+                  {showResolved ? ctx.t.hideResolved : ctx.t.showResolved}
+                </button>
+              )}
+              <button type="button" className="ml-auto text-sm font-medium text-gel-deep" onClick={props.onClose}>{ctx.t.close}</button>
+            </div>
+            {!canPost && <p className="mb-3 text-sm text-ink-soft">{T(locale, "Tu vois les notes en direct. Ton rôle (Lire) ne permet pas d'en laisser.", "You see the notes live. Your role (Read) doesn't allow leaving any.")}</p>}
+            {openFor && (
+              <section className="mb-5">
+                <h3 className="font-body text-[13px] font-semibold text-ink-soft">{label(openFor)}</h3>
+                <ThreadStack ctx={ctx} threads={threadsFor(api.threads, openFor)} elementID={openFor} autoFocus />
+              </section>
+            )}
+            {lines.map((id) => (
+              <section key={id} className="mb-5">
+                <h3 className="font-body text-[13px] font-semibold text-ink-soft">{label(id)}</h3>
+                <div className="my-2 space-y-2.5">{threadsFor(api.threads, id).filter((th) => showResolved || !th.resolved).map((th) => <ThreadCard key={th.root.id} ctx={ctx} thread={th} />)}</div>
+              </section>
+            ))}
+            <section className="mb-5">
+              <h3 className="font-display text-sm font-semibold">{ctx.t.general}</h3>
+              <ThreadStack ctx={ctx} threads={threadsFor(api.threads, GENERAL)} elementID={GENERAL} />
+            </section>
+            {detached.length > 0 && (
+              <section>
+                <h3 className="font-display text-sm font-semibold">{ctx.t.detached}</h3>
+                <p className="text-[12px] text-ink-soft">{ctx.t.detachedHint}</p>
+                <div className="my-2 space-y-2.5">{detached.map((th) => <ThreadCard key={th.root.id} ctx={ctx} thread={th} />)}</div>
+              </section>
+            )}
+          </aside>
+        </div>
+      )}
+    </>
   );
 }

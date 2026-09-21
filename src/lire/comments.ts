@@ -35,9 +35,14 @@ export interface PlayMeta {
   commentsOpen: boolean;
   resolved: string[];
   hidden: string[];
-  /** CloudKit user record name of the play's owner. */
+  /** The play's owner (CloudKit user record name, or Firebase uid). */
   owner: string;
   changeTag?: string;
+  /**
+   * In a shared play every WRITER moderates (resolve, reopen, hide) — directly on
+   * the note. On a CloudKit reading only the owner does, through the lists above.
+   */
+  moderator?: boolean;
 }
 
 export interface Thread {
@@ -183,10 +188,10 @@ export function can(
   c: CommentRec,
 ): { remove: boolean; hide: boolean; resolve: boolean } {
   const mine = !!viewer && viewer === c.creator;
-  const owner = !!viewer && viewer === meta.owner;
+  const moderates = !!viewer && (viewer === meta.owner || !!meta.moderator);
   return {
     remove: mine,
-    hide: owner && !mine,
-    resolve: !c.parentID && (mine || owner),
+    hide: moderates && !mine,
+    resolve: !c.parentID && (mine || moderates),
   };
 }
