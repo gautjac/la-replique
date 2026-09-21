@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { Timestamp, collectionGroup, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where, documentId } from "firebase/firestore";
+import { Timestamp, collectionGroup, deleteDoc, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 
 let env: RulesTestEnvironment;
 const PLAY = "play1";
@@ -25,10 +25,10 @@ beforeEach(async () => {
   await env.withSecurityRulesDisabled(async (ctx) => {
     const f = ctx.firestore();
     await setDoc(doc(f, `plays/${PLAY}`), { title: "La porte", ownerUid: "jac" });
-    await setDoc(doc(f, `plays/${PLAY}/members/jac`), { role: "writer", name: "Jac" });
-    await setDoc(doc(f, `plays/${PLAY}/members/zoe`), { role: "writer", name: "Zoé" });
-    await setDoc(doc(f, `plays/${PLAY}/members/luc`), { role: "commenter", name: "Luc" });
-    await setDoc(doc(f, `plays/${PLAY}/members/ana`), { role: "reader", name: "Ana" });
+    await setDoc(doc(f, `plays/${PLAY}/members/jac`), { uid: "jac", role: "writer", name: "Jac" });
+    await setDoc(doc(f, `plays/${PLAY}/members/zoe`), { uid: "zoe", role: "writer", name: "Zoé" });
+    await setDoc(doc(f, `plays/${PLAY}/members/luc`), { uid: "luc", role: "commenter", name: "Luc" });
+    await setDoc(doc(f, `plays/${PLAY}/members/ana`), { uid: "ana", role: "reader", name: "Ana" });
     await setDoc(doc(f, `plays/${PLAY}/elements/e1`), { kind: "cue", text: "Un.", orderKey: "V" });
     await setDoc(doc(f, `plays/${PLAY}/notes/n1`), { authorUid: "luc", body: "Garde ça sec.", resolved: false });
     await setDoc(doc(f, "invites/tok-w"), { playID: PLAY, role: "writer", createdBy: "jac", expiresAt: soon() });
@@ -44,7 +44,8 @@ describe("reading", () => {
     await assertFails(getDoc(doc(db(), `plays/${PLAY}/elements/e1`)));
   });
   it("you can list the plays you're in, and only those", async () => {
-    await assertSucceeds(getDocs(query(collectionGroup(db("zoe"), "members"), where(documentId(), "==", `plays/${PLAY}/members/zoe`))));
+    await assertSucceeds(getDocs(query(collectionGroup(db("zoe"), "members"), where("uid", "==", "zoe"))));
+    await assertFails(getDocs(query(collectionGroup(db("zoe"), "members"), where("uid", "==", "jac"))));
     await assertFails(getDocs(collectionGroup(db("zoe"), "members")));
   });
 });
@@ -75,28 +76,29 @@ describe("writing the script", () => {
 describe("membership", () => {
   it("creating a play seats its owner as a writer — and only the owner", async () => {
     await assertSucceeds(setDoc(doc(db("bob"), "plays/p2"), { title: "Neuve", ownerUid: "bob" }));
-    await assertSucceeds(setDoc(doc(db("bob"), "plays/p2/members/bob"), { role: "writer", name: "Bob" }));
+    await assertSucceeds(setDoc(doc(db("bob"), "plays/p2/members/bob"), { uid: "bob", role: "writer", name: "Bob" }));
     await assertFails(setDoc(doc(db("bob"), "plays/p3"), { title: "Usurpée", ownerUid: "jac" }));
-    await assertFails(setDoc(doc(db("zoe"), "plays/p2/members/zoe"), { role: "writer", name: "Zoé" }));
+    await assertFails(setDoc(doc(db("zoe"), "plays/p2/members/zoe"), { uid: "zoe", role: "writer", name: "Zoé" }));
   });
   it("a live invite lets you in at exactly its role", async () => {
     await assertSucceeds(getDoc(doc(db("bob"), "invites/tok-w")));
-    await assertSucceeds(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { role: "writer", name: "Bob", via: "tok-w" }));
+    await assertSucceeds(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { uid: "bob", role: "writer", name: "Bob", via: "tok-w" }));
     await assertSucceeds(updateDoc(doc(db("bob"), `plays/${PLAY}/elements/e1`), { text: "Bob écrit." }));
   });
   it("no invite, a wrong role, an expired invite, or someone else's seat: refused", async () => {
-    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { role: "writer", name: "Bob" }));
-    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { role: "writer", name: "Bob", via: "nope" }));
-    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { role: "writer", name: "Bob", via: "tok-old" }));
-    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/eve`), { role: "writer", name: "Eve", via: "tok-w" }));
+    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { uid: "bob", role: "writer", name: "Bob" }));
+    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { uid: "bob", role: "writer", name: "Bob", via: "nope" }));
+    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { uid: "bob", role: "writer", name: "Bob", via: "tok-old" }));
+    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { uid: "jac", role: "writer", name: "Bob", via: "tok-w" }));
+    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/eve`), { uid: "bob", role: "writer", name: "Eve", via: "tok-w" }));
     await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), "invites/tok-r"), { playID: PLAY, role: "reader", createdBy: "jac", expiresAt: soon() }));
-    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { role: "writer", name: "Bob", via: "tok-r" }));
+    await assertFails(setDoc(doc(db("bob"), `plays/${PLAY}/members/bob`), { uid: "bob", role: "writer", name: "Bob", via: "tok-r" }));
   });
   it("nobody promotes themselves; the owner changes roles and removes people; anyone may leave", async () => {
-    await assertFails(updateDoc(doc(db("luc"), `plays/${PLAY}/members/luc`), { role: "writer" }));
+    await assertFails(updateDoc(doc(db("luc"), `plays/${PLAY}/members/luc`), { uid: "luc", role: "writer" }));
     await assertSucceeds(updateDoc(doc(db("luc"), `plays/${PLAY}/members/luc`), { name: "Luc B." }));
-    await assertFails(updateDoc(doc(db("zoe"), `plays/${PLAY}/members/luc`), { role: "writer" }));
-    await assertSucceeds(updateDoc(doc(db("jac"), `plays/${PLAY}/members/luc`), { role: "writer" }));
+    await assertFails(updateDoc(doc(db("zoe"), `plays/${PLAY}/members/luc`), { uid: "luc", role: "writer" }));
+    await assertSucceeds(updateDoc(doc(db("jac"), `plays/${PLAY}/members/luc`), { uid: "luc", role: "writer" }));
     await assertFails(deleteDoc(doc(db("zoe"), `plays/${PLAY}/members/ana`)));
     await assertSucceeds(deleteDoc(doc(db("jac"), `plays/${PLAY}/members/ana`)));
     await assertSucceeds(deleteDoc(doc(db("zoe"), `plays/${PLAY}/members/zoe`)));

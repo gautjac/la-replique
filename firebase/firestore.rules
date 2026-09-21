@@ -3,7 +3,7 @@ rules_version = '2';
 // La Réplique — shared plays.
 //
 //   plays/{play}                   the play's info + ownerUid
-//   plays/{play}/members/{uid}     { role: writer | commenter | reader, name, via? }
+//   plays/{play}/members/{uid}     { uid, role: writer | commenter | reader, name, via? }
 //   plays/{play}/characters/{id}   plays/{play}/elements/{id}
 //   plays/{play}/notes/{id}        readers' and writers' notes
 //   plays/{play}/presence/{uid}    who is here, on which line
@@ -41,7 +41,8 @@ service cloud.firestore {
         allow read: if isMember(play);
         // 1) the owner seats themselves when creating the play;
         // 2) anyone signed in joins with a live invite, at exactly the invite's role.
-        allow create: if signedIn() && member == uid() && validRole(request.resource.data.role) && (
+        allow create: if signedIn() && member == uid() && request.resource.data.uid == uid()
+                      && validRole(request.resource.data.role) && (
             (isOwner(play) && request.resource.data.role == 'writer')
             || (request.resource.data.via is string
                 && exists(/databases/$(database)/documents/invites/$(request.resource.data.via))
@@ -52,6 +53,7 @@ service cloud.firestore {
         // The owner changes roles; a member may only rename themselves.
         allow update: if (isOwner(play) && validRole(request.resource.data.role))
                       || (member == uid() && request.resource.data.role == resource.data.role
+                          && request.resource.data.uid == resource.data.uid
                           && request.resource.data.get('via', null) == resource.data.get('via', null));
         // The owner removes people (never themselves); anyone may leave.
         allow delete: if (isOwner(play) && member != uid()) || (member == uid() && !isOwner(play));
@@ -81,9 +83,10 @@ service cloud.firestore {
       }
     }
 
-    // Find "the plays I'm in" without being able to list plays.
+    // Find "the plays I'm in" (collectionGroup('members').where('uid','==',me))
+    // without anyone being able to list plays or other people's seats.
     match /{path=**}/members/{member} {
-      allow list: if signedIn() && member == uid();
+      allow list: if signedIn() && resource.data.uid == uid();
     }
 
     match /invites/{token} {
