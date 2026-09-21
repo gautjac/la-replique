@@ -8,3 +8,6 @@ dist
 # Remotion promo — heavy render outputs / caches (source is kept)
 promo/out
 **/.remotion
+
+# Firebase emulator logs
+*-debug.log
