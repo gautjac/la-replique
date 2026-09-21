@@ -1,0 +1,100 @@
+rules_version = '2';
+
+// La Réplique — shared plays.
+//
+//   plays/{play}                   the play's info + ownerUid
+//   plays/{play}/members/{uid}     { role: writer | commenter | reader, name, via? }
+//   plays/{play}/characters/{id}   plays/{play}/elements/{id}
+//   plays/{play}/notes/{id}        readers' and writers' notes
+//   plays/{play}/presence/{uid}    who is here, on which line
+//   invites/{token}                { playID, role, createdBy, expiresAt }
+//
+// Membership is one document per person (not a map on the play) so that JOINING
+// can be a plain create the rules can check against an invite, and so a writer
+// can never edit the member list by editing the play.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function uid() { return request.auth.uid; }
+    function memberDoc(play) { return /databases/$(database)/documents/plays/$(play)/members/$(uid()); }
+    function isMember(play) { return signedIn() && exists(memberDoc(play)); }
+    function role(play) { return get(memberDoc(play)).data.role; }
+    function isWriter(play) { return isMember(play) && role(play) == 'writer'; }
+    function canNote(play) { return isMember(play) && role(play) in ['writer', 'commenter']; }
+    function isOwner(play) {
+      return signedIn() && get(/databases/$(database)/documents/plays/$(play)).data.ownerUid == uid();
+    }
+    function validRole(r) { return r in ['writer', 'commenter', 'reader']; }
+
+    
+
+    match /plays/{play} {
+      allow get: if isMember(play);
+      allow list: if false;   // plays are found through collectionGroup('members'), never listed
+      allow create: if signedIn() && request.resource.data.ownerUid == uid();
+      // Writers edit the info; nobody moves ownership by editing the play.
+      allow update: if isWriter(play) && request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if isOwner(play);
+
+      match /members/{member} {
+        allow read: if isMember(play);
+        // 1) the owner seats themselves when creating the play;
+        // 2) anyone signed in joins with a live invite, at exactly the invite's role.
+        allow create: if signedIn() && member == uid() && validRole(request.resource.data.role) && (
+            (isOwner(play) && request.resource.data.role == 'writer')
+            || (request.resource.data.via is string
+                && exists(/databases/$(database)/documents/invites/$(request.resource.data.via))
+                && get(/databases/$(database)/documents/invites/$(request.resource.data.via)).data.playID == play
+                && get(/databases/$(database)/documents/invites/$(request.resource.data.via)).data.role == request.resource.data.role
+                && get(/databases/$(database)/documents/invites/$(request.resource.data.via)).data.expiresAt > request.time)
+          );
+        // The owner changes roles; a member may only rename themselves.
+        allow update: if (isOwner(play) && validRole(request.resource.data.role))
+                      || (member == uid() && request.resource.data.role == resource.data.role
+                          && request.resource.data.get('via', null) == resource.data.get('via', null));
+        // The owner removes people (never themselves); anyone may leave.
+        allow delete: if (isOwner(play) && member != uid()) || (member == uid() && !isOwner(play));
+      }
+
+      match /elements/{id} {
+        allow read: if isMember(play);
+        allow write: if isWriter(play)
+                     && (request.resource == null || request.resource.data.get('text', '').size() <= 20000);
+      }
+      match /characters/{id} {
+        allow read: if isMember(play);
+        allow write: if isWriter(play);
+      }
+      match /notes/{id} {
+        allow read: if isMember(play);
+        allow create: if canNote(play) && request.resource.data.authorUid == uid()
+                      && request.resource.data.body is string && request.resource.data.body.size() <= 2000;
+        // Your own note is yours; writers may resolve or hide anyone's (those two fields only).
+        allow update: if (canNote(play) && resource.data.authorUid == uid() && request.resource.data.authorUid == uid())
+                      || (isWriter(play) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved', 'hidden']));
+        allow delete: if isMember(play) && resource.data.authorUid == uid();
+      }
+      match /presence/{who} {
+        allow read: if isMember(play);
+        allow write: if isMember(play) && who == uid();
+      }
+    }
+
+    // Find "the plays I'm in" without being able to list plays.
+    match /{path=**}/members/{member} {
+      allow list: if signedIn() && member == uid();
+    }
+
+    match /invites/{token} {
+      // Knowing the token IS the invitation: you can fetch it, never list them.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && isOwner(request.resource.data.playID)
+                    && request.resource.data.createdBy == uid() && validRole(request.resource.data.role)
+                    && request.resource.data.expiresAt is timestamp;
+      allow delete: if signedIn() && isOwner(resource.data.playID);
+      allow update: if false;
+    }
+  }
+}
