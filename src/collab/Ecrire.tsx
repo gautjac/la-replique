@@ -14,7 +14,7 @@ import { CollabCore } from "./core";
 import { notesBackend } from "./notesBackend";
 import {
   EMULATOR, fetchAll, join, listen, myPlays, myRole, playOwner, presence, rename, send, sendEmailLink, signInDemo, signInGoogle,
-  signOutNow, watchAuth, type Other, type Person, type Seat,
+  colorFor, signOutNow, watchAuth, type LineEdit, type Other, type Person, type Seat,
 } from "./firebase";
 
 const T = <A,>(l: Locale, fr: A, en: A): A => (l === "fr" ? fr : en);
@@ -197,6 +197,10 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
   const [showCast, setShowCast] = useState(false);
   const [ownerUid, setOwnerUid] = useState("");
   const [notesFor, setNotesFor] = useState<string | null | undefined>(undefined);   // undefined = closed, null = all
+  const [edits, setEdits] = useState<Record<string, LineEdit>>({});
+  const [showChanges, setShowChanges] = useState(false);
+  // "Since my last visit": fixed for this whole session; the visit ends when the tab does.
+  const since = useRef<number>((() => { try { return Number(localStorage.getItem(`lr.seen.${playID}`)) || Date.now(); } catch { return Date.now(); } })());
   const core = useRef(new CollabCore());
   const latest = useRef<Play | null>(null);        // the truth, always current
   const rendered = useRef<Play | null>(null);      // what the editor last saw
@@ -220,26 +224,34 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
       try { all = await fetchAll(playID); } catch { if (alive) setStatus("gone"); return; }
       if (!alive) return;
       setPlay(core.current.adopt(all, { id: playID, createdAt: Date.now() }));
+      const author = { uid: person.uid, name: person.name || person.email || "?" };
+      const seen = () => { try { localStorage.setItem(`lr.seen.${playID}`, String(Date.now())); } catch { /* fine */ } };
+      window.addEventListener("pagehide", seen);
       const unlisten = listen(playID, core.current.shadow.keys(), {
         onChanges: (changes) => {
           if (!latest.current) return;
           const out = core.current.applyRemote(latest.current, changes);
           if (out.play !== latest.current) setPlay(out.play);
-          if (canWriteRef.current && out.ops.length) send(playID, out.ops);
+          if (canWriteRef.current && out.ops.length) send(playID, out.ops, author);
         },
+        onEdits: (next) => setEdits((cur) => {
+          const out = { ...cur };
+          for (const [id, e] of Object.entries(next)) { if (e) out[id] = e; else delete out[id]; }
+          return out;
+        }),
         onLive: (live) => setStatus((s) => (s === "gone" ? s : live ? "live" : "offline")),
         onLost: () => setStatus("gone"),
       });
       const timer = window.setInterval(() => {
         if (!latest.current || !canWriteRef.current) return;
         const ops = core.current.flushLocal(latest.current);
-        if (ops.length) send(playID, ops);
+        if (ops.length) send(playID, ops, author);
       }, 400);
       pres.current = presence(playID, person.name || person.email || "?", setOthers);
-      stop = () => { window.clearInterval(timer); unlisten(); pres.current?.stop(); };
+      stop = () => { window.clearInterval(timer); unlisten(); pres.current?.stop(); window.removeEventListener("pagehide", seen); seen(); };
     })();
     return () => { alive = false; stop(); };
-  }, [playID, person.name, person.email]);
+  }, [playID, person.uid, person.name, person.email]);
 
   // The editor hands back whole plays computed from what it last rendered; lay
   // only what CHANGED onto the current truth, so a change that landed in between
@@ -254,6 +266,9 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
     for (const o of others) if (o.elementID) (m[o.elementID] ??= []).push({ name: o.name, color: o.color });
     return m;
   }, [others]);
+
+  const recent = useMemo(() => Object.entries(edits).filter(([, e]) => e.uid !== person.uid && e.at > since.current).sort((a, b) => b[1].at - a[1].at), [edits, person.uid]);
+  const changedMap = useMemo(() => Object.fromEntries(recent.map(([id, e]) => [id, { name: e.name, color: colorFor(e.uid) }])), [recent]);
 
   if (status === "stranger")
     return <Centered><div><p>{T(locale, "Tu n'es pas invité·e à cette pièce — ou pas avec ce compte.", "You aren't invited to this play — or not with this account.")}</p>
@@ -282,8 +297,12 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
               className="no-print fixed right-4 top-14 z-30 rounded-full border border-desk-rule bg-desk-light px-3 py-1.5 text-xs font-semibold shadow-lift hover:border-gel-bright">
               💬 Notes{total ? ` · ${total}` : ""}
             </button>
+            <button type="button" onClick={() => setShowChanges(true)}
+              className="no-print fixed right-4 top-24 z-30 rounded-full border border-desk-rule bg-desk-light px-3 py-1.5 text-xs font-semibold shadow-lift hover:border-gel-bright">
+              🕘 {T(locale, "Changements", "Changes")}{recent.length ? ` · ${recent.length}` : ""}
+            </button>
             <Editor play={play} commit={commit} others={byElement} onFocusElement={(id) => pres.current?.focus(id)}
-              readOnly={!canWrite || status === "gone"} noAI noteCounts={counts} onNotes={role === "reader" ? undefined : (id) => setNotesFor(id)} />
+              readOnly={!canWrite || status === "gone"} noAI noteCounts={counts} onNotes={role === "reader" ? undefined : (id) => setNotesFor(id)} changed={changedMap} />
           </>
         )}
       </RoomNotes>
@@ -300,6 +319,31 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
           <span className="max-w-[40vw] truncate">{others.map((o) => o.name).join(", ")}</span>
         </span>
       </footer>
+
+      {showChanges && (
+        <div className="no-print fixed inset-0 z-40 flex justify-end bg-black/50" onClick={() => setShowChanges(false)}>
+          <aside className="h-full w-full max-w-md overflow-y-auto bg-desk-light p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-2 flex items-center"><h2 className="font-display text-lg font-semibold">{T(locale, "Changements", "Changes")}</h2>
+              <button type="button" className="ml-auto text-sm text-gel-bright" onClick={() => setShowChanges(false)}>{STRINGS.close[locale]}</button></div>
+            <p className="mb-4 text-sm text-ink-faint">{T(locale, "Ce que les autres ont changé depuis ta dernière visite.", "What the others changed since your last visit.")}</p>
+            {recent.length === 0 && <p className="text-ink-faint">{T(locale, "Rien de neuf.", "Nothing new.")}</p>}
+            {recent.map(([id, e]) => {
+              const el = play.elements.find((x) => x.id === id);
+              if (!el) return null;
+              const who = el.type === "cue" ? play.characters.find((c) => c.id === el.characterId)?.name : undefined;
+              const text = ("text" in el ? el.text : el.label) ?? "";
+              return (
+                <button key={id} type="button" className="mb-2 flex w-full items-start gap-2.5 rounded-lg bg-desk px-3 py-2.5 text-left hover:ring-1 hover:ring-gel-bright"
+                  onClick={() => { setShowChanges(false); document.querySelector(`[data-elid="${id}"], [data-row="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>
+                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: colorFor(e.uid) }} />
+                  <span className="min-w-0"><span className="block text-sm">{(who ? `${who} — ` : "") + (text.length > 90 ? text.slice(0, 90) + "…" : text)}</span>
+                    <span className="text-xs text-ink-faint">{e.name} · {new Date(e.at).toLocaleString(locale === "fr" ? "fr-CA" : "en-CA", { dateStyle: "medium", timeStyle: "short" })}</span></span>
+                </button>
+              );
+            })}
+          </aside>
+        </div>
+      )}
 
       {showCast && (
         <div className="no-print fixed inset-0 z-40 flex justify-end bg-black/50" onClick={() => setShowCast(false)}>

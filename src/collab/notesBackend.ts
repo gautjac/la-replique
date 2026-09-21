@@ -47,7 +47,9 @@ export function notesBackend(playID: string, role: string, ownerUid: string): Ba
     async ownerUpdate(_id, m) { return m; },
     hide: (c) => guard(() => updateDoc(doc(notes(), c.id), { hidden: true })),
     subscribe(_shareID, onChange) {
-      return onSnapshot(notes(), (snap) => onChange(snap.docs.map(toRec).filter((x): x is CommentRec => !!x)));
+      // The error handler matters: without one, a permissions hiccup (a seat removed
+      // mid-session) surfaces as an uncaught error in the console.
+      return onSnapshot(notes(), (snap) => onChange(snap.docs.map(toRec).filter((x): x is CommentRec => !!x)), () => undefined);
     },
   };
 }

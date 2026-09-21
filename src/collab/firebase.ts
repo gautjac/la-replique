@@ -88,14 +88,21 @@ export async function signOutNow(): Promise<void> { boot(); await signOut(auth);
 const INFO_KEYS = new Set(["title", "subtitle", "author", "logline", "lang", "altLang"]);
 const strings = (data: Record<string, unknown>, only?: Set<string>): Fields => {
   const out: Fields = {};
-  for (const [k, v] of Object.entries(data)) if (typeof v === "string" && (!only || only.has(k))) out[k] = v;
+  // `_`-prefixed keys are META (who last changed the line) — never script content. If
+  // they reached the core it would "unset" them on its next flush and erase attribution.
+  for (const [k, v] of Object.entries(data)) if (!k.startsWith("_") && typeof v === "string" && (!only || only.has(k))) out[k] = v;
   return out;
 };
 const colName = (k: Kind) => (k === "character" ? "characters" : "elements");
 const docOf = (playID: string, ref: Ref) => (ref.kind === "info" ? doc(db, "plays", playID) : doc(db, "plays", playID, colName(ref.kind), ref.id));
 
+/** Who last changed a line, and when (`_by`, `_byName`, `_at` on the element's document). */
+export interface LineEdit { uid: string; name: string; at: number }
+
 export interface TransportHandlers {
   onChanges(changes: Change[]): void;
+  /** Attribution as it changes: element id → edit, or null when the line is gone. */
+  onEdits?(edits: Record<string, LineEdit | null>): void;
   onLive(live: boolean): void;
   onLost(): void;
 }
@@ -127,6 +134,17 @@ export function listen(playID: string, known: Iterable<string>, h: TransportHand
         for (const id of mine[kind]) if (!alive.has(id)) changes.push({ t: "removed", ref: { kind, id } });
       }
       if (changes.length) h.onChanges(changes);
+      if (kind === "element" && h.onEdits) {
+        const edits: Record<string, LineEdit | null> = {};
+        for (const c of snap.docChanges({ includeMetadataChanges: false })) {
+          if (c.type === "removed") { edits[c.doc.id] = null; continue; }
+          const uid = c.doc.get("_by");
+          if (typeof uid !== "string") continue;
+          const at = c.doc.get("_at", { serverTimestamps: "estimate" }) as Timestamp | undefined;
+          edits[c.doc.id] = { uid, name: String(c.doc.get("_byName") ?? "?"), at: at?.toMillis() ?? Date.now() };
+        }
+        if (Object.keys(edits).length) h.onEdits(edits);
+      }
       heard(kind, snap.metadata.fromCache);
     }, () => h.onLost()));
   }
@@ -134,16 +152,18 @@ export function listen(playID: string, known: Iterable<string>, h: TransportHand
 }
 
 /** Puts and deletes in batches; patches ONE BY ONE so a patch to a just-deleted line fails alone. */
-export function send(playID: string, ops: Op[]): void {
+export function send(playID: string, ops: Op[], author?: { uid: string; name: string }): void {
   boot();
+  const stamp = (ref: Ref, data: Record<string, unknown>) =>
+    ref.kind === "element" && author ? { ...data, _by: author.uid, _byName: author.name, _at: serverTimestamp() } : data;
   let batch = writeBatch(db), n = 0;
   const flush = (force = false) => { if (n && (force || n >= 400)) { void batch.commit().catch(() => undefined); batch = writeBatch(db); n = 0; } };
   for (const op of ops) {
-    if (op.t === "put") { batch.set(docOf(playID, op.ref), op.fields, { merge: op.ref.kind === "info" }); n++; }
+    if (op.t === "put") { batch.set(docOf(playID, op.ref), stamp(op.ref, op.fields), { merge: op.ref.kind === "info" }); n++; }
     else if (op.t === "delete") { batch.delete(docOf(playID, op.ref)); n++; }
     else {
       flush(true);
-      const data: Record<string, unknown> = { ...op.set };
+      const data: Record<string, unknown> = stamp(op.ref, { ...op.set });
       for (const u of op.unset) data[u] = deleteField();
       void updateDoc(docOf(playID, op.ref), data).catch(() => undefined);   // NOT_FOUND = the line is gone
     }
@@ -237,7 +257,7 @@ export function presence(playID: string, name: string, onOthers: (o: Other[]) =>
       seen: (d.get("lastSeen", { serverTimestamps: "estimate" }) as Timestamp | undefined)?.toMillis() ?? Date.now(),
     }));
     prune();
-  });
+  }, () => undefined);
   write();
   let n = 0;
   const timer = window.setInterval(() => { prune(); if (++n % 4 === 0) write(); }, 5000);

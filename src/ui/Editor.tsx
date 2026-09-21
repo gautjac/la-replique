@@ -33,6 +33,8 @@ interface EditorProps {
   /** Open notes per element id; with `onNotes`, every line gets a note chip. */
   noteCounts?: Record<string, number>;
   onNotes?: (id: string) => void;
+  /** Lines other people changed since my last visit: a dot in their colour. */
+  changed?: Record<string, { name: string; color: string }>;
 }
 
 interface FocusReq {
@@ -40,7 +42,7 @@ interface FocusReq {
   at: number; // nonce so repeated focus of same id still fires
 }
 
-export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAlt, others, onFocusElement, readOnly, noAI, noteCounts, onNotes }: EditorProps) {
+export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAlt, others, onFocusElement, readOnly, noAI, noteCounts, onNotes, changed }: EditorProps) {
   const { t } = useUI();
   const fieldRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const [focusReq, setFocusReq] = useState<FocusReq | null>(null);
@@ -161,8 +163,11 @@ export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAl
               // not type in it — unless you were there first (then last writer wins).
               const locked = !!readOnly || (here.length > 0 && activeId !== el.id);
               return (
-              <div key={el.id} className="relative">
+              <div key={el.id} data-row={el.id} className="relative">
                 {here.length > 0 && <span aria-hidden className="absolute -left-3 bottom-1 top-1 w-[3px] rounded" style={{ background: here[0].color }} />}
+                {here.length === 0 && changed?.[el.id] && (
+                  <span title={changed[el.id].name} aria-label={changed[el.id].name} className="absolute -left-4 top-3 h-[7px] w-[7px] rounded-full" style={{ background: changed[el.id].color }} />
+                )}
                 {here.length > 0 && (
                   <span className="pointer-events-none absolute -bottom-1 right-0 z-10 rounded-full px-1.5 py-px font-sans text-[10px] font-bold text-white" style={{ background: here[0].color }}>
                     {here.map((o) => o.name).join(", ")}
