@@ -8,7 +8,9 @@ import type { Play } from "../types";
 export type HistoryKind = "edit" | "add" | "delete" | "move" | "cast" | "info";
 export interface HistoryEntry {
   id: string; uid: string; name: string; kind: HistoryKind; elementID: string; speaker?: string;
-  before?: Fields; after?: Fields; at: number; count: number;
+  before?: Fields; after?: Fields;
+  /** When the entry was opened; `at` keeps moving while a burst of typing extends it. */
+  from: number; at: number; count: number;
 }
 const WINDOW_MS = 600_000;
 
@@ -27,7 +29,7 @@ export function historyLog(playID: string, author: { uid: string; name: string }
       return;
     }
     const id = crypto.randomUUID().toUpperCase();
-    const data: Record<string, unknown> = { uid: author.uid, name: author.name, kind, elementID: key, at: serverTimestamp(), count: 1 };
+    const data: Record<string, unknown> = { uid: author.uid, name: author.name, kind, elementID: key, from: serverTimestamp(), at: serverTimestamp(), count: 1 };
     if (before) data.before = before;
     if (after) data.after = after;
     if (isElement) {
@@ -69,6 +71,8 @@ export function watchHistory(playID: string, onChange: (entries: HistoryEntry[])
     id: d.id, uid: String(d.get("uid") ?? ""), name: String(d.get("name") ?? "?"), kind: d.get("kind") as HistoryKind,
     elementID: String(d.get("elementID") ?? ""), speaker: d.get("speaker") as string | undefined,
     before: d.get("before") as Fields | undefined, after: d.get("after") as Fields | undefined,
+    from: (d.get("from", { serverTimestamps: "estimate" }) as Timestamp | undefined)?.toMillis()
+      ?? (d.get("at", { serverTimestamps: "estimate" }) as Timestamp | undefined)?.toMillis() ?? Date.now(),
     at: (d.get("at", { serverTimestamps: "estimate" }) as Timestamp | undefined)?.toMillis() ?? Date.now(), count: Number(d.get("count") ?? 1),
   }))), () => undefined);
 }

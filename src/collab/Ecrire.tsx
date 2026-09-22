@@ -15,6 +15,7 @@ import { notesBackend } from "./notesBackend";
 import { historyLog, saveVersion, watchHistory, watchVersions, type HistoryEntry, type SharedVersion } from "./history";
 import { compare, summary, type DiffRow, type DocEl } from "./playDiff";
 import { toAiJSON } from "../export";
+import { DiffText } from "../ui/DiffText";
 import { makeCharacter } from "../model";
 import {
   EMULATOR, fetchAll, join, listen, myPlays, myRole, playOwner, presence, rename, send, sendEmailLink, signInDemo, signInGoogle,
@@ -464,11 +465,14 @@ function HistoryDrawer(props: { playID: string; play: Play; locale: Locale; canW
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   useEffect(() => watchHistory(props.playID, setEntries), [props.playID]);
   const verb = (e: HistoryEntry) => ({
-    edit: e.count > 1 ? T(locale, `a retouché une ligne (${e.count} passes)`, `edited a line (${e.count} passes)`) : T(locale, "a retouché une ligne", "edited a line"),
+    edit: T(locale, "a retouché une ligne", "edited a line"),
     add: T(locale, "a ajouté une ligne", "added a line"), delete: T(locale, "a supprimé une ligne", "deleted a line"),
     move: T(locale, "a déplacé une ligne", "moved a line"), cast: T(locale, "a changé la distribution", "changed the cast"),
     info: T(locale, "a changé le titre ou l'en-tête", "changed the title or header"),
   })[e.kind];
+  const hm = (t: number) => new Date(t).toLocaleTimeString(locale === "fr" ? "fr-CA" : "en-CA", { timeStyle: "short" });
+  // A burst of typing shows as a span: « 20:32 – 20:35 ».
+  const when = (e: HistoryEntry) => { const a = hm(e.from), b = hm(e.at); return a === b ? b : `${a} – ${b}`; };
   const days = new Map<string, HistoryEntry[]>();
   for (const e of entries) { const k = new Date(e.at).toLocaleDateString(locale === "fr" ? "fr-CA" : "en-CA", { dateStyle: "long" }); (days.get(k) ?? days.set(k, []).get(k)!).push(e); }
 
@@ -504,10 +508,11 @@ function HistoryDrawer(props: { playID: string; play: Play; locale: Locale; canW
               <div key={e.id} className="mb-2 rounded-lg bg-desk px-3 py-2.5 text-sm">
                 <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: colorFor(e.uid) }} />
                   <span className="font-semibold">{e.name}</span><span className="text-ink-faint">{verb(e)}</span>
-                  <span className="ml-auto text-xs text-ink-faint">{new Date(e.at).toLocaleTimeString(locale === "fr" ? "fr-CA" : "en-CA", { timeStyle: "short" })}</span></div>
+                  <span className="ml-auto text-xs text-ink-faint">{when(e)}</span></div>
                 {e.speaker && <div className="mt-1 text-[11px] font-bold tracking-wider text-gel-bright">{e.speaker}</div>}
-                {(e.kind === "edit" || e.kind === "delete") && before && <div className="mt-1 line-clamp-3 text-rose/90 line-through">{before}</div>}
-                {(e.kind === "edit" || e.kind === "add") && after && <div className="mt-1 line-clamp-3">{after}</div>}
+                {e.kind === "edit" && <DiffText before={before ?? ""} after={after ?? ""} color={colorFor(e.uid)} className="mt-1" />}
+                {e.kind === "delete" && before && <div className="mt-1 whitespace-pre-wrap text-rose/90 line-through">{before}</div>}
+                {e.kind === "add" && after && <div className="mt-1 whitespace-pre-wrap font-semibold" style={{ color: colorFor(e.uid) }}>{after}</div>}
                 <div className="mt-1.5 flex gap-3 text-xs font-semibold text-gel-bright">
                   {exists && <button type="button" onClick={() => props.onJump(e.elementID)}>{T(locale, "Ouvrir dans le texte", "Open in the text")}</button>}
                   {props.canWrite && ((e.kind === "edit" && exists) || (e.kind === "delete" && !exists)) && (
@@ -585,7 +590,7 @@ function VersionsDrawer(props: { playID: string; play: Play; locale: Locale; can
             <div className="mb-1 flex items-center gap-2"><span className="rounded-full px-1.5 text-[10px] font-bold uppercase" style={{ background: colour[r.kind] + "33", color: colour[r.kind] }}>{tag(r.kind)}</span>
               {r.doc.id && authors[r.doc.id] && <span className="text-xs text-ink-faint">{authors[r.doc.id]}</span>}</div>
             {r.kind === "removed" && <div className="text-rose/90 line-through">{text(r.doc)}</div>}
-            {r.kind === "changed" && <><div className="text-rose/90 line-through">{text(r.from)}</div><div>{text(r.doc)}</div></>}
+            {r.kind === "changed" && <DiffText before={text(r.from)} after={text(r.doc)} color="#6f97ff" />}
             {(r.kind === "added" || r.kind === "moved") && <div>{text(r.doc)}</div>}
           </div>
         ))}
