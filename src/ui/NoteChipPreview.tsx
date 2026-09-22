@@ -59,6 +59,12 @@ export function NoteChipPreview(props: { count: number; items: NotePreviewItem[]
               <div className="flex items-baseline gap-2 text-[12px]">
                 <span className="font-semibold">{it.author}</span>
                 <span className="text-ink-faint">{relative(it.at, locale)}</span>
+                {i === 0 && (
+                  <button type="button" onClick={() => { close(); onOpen(); }} aria-label={fr ? "Ouvrir · répondre" : "Open · reply"} title={fr ? "Ouvrir · répondre" : "Open · reply"}
+                    className="ml-auto -mr-1 -mt-1 flex h-7 w-7 items-center justify-center rounded-full text-gel-deep hover:bg-gel-wash">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M6.5 3.5 1.5 8l5 4.5V10c3.2 0 5.6.9 7.5 3-.6-3.8-2.9-6.6-7.5-7V3.5z"/></svg>
+                  </button>
+                )}
               </div>
               {it.quote && <div className="mt-0.5 truncate font-body text-[12px] text-ink-soft">« {it.quote} »</div>}
               <p className="mt-0.5 line-clamp-4 whitespace-pre-wrap font-body text-[13px] leading-snug">{it.body}</p>
@@ -66,9 +72,6 @@ export function NoteChipPreview(props: { count: number; items: NotePreviewItem[]
             </div>
           ))}
           {items.length > 3 && <div className="mt-2 text-[11px] text-ink-faint">{fr ? `… et ${items.length - 3} de plus` : `… and ${items.length - 3} more`}</div>}
-          <button type="button" onClick={() => { close(); onOpen(); }} className="mt-3 w-full rounded-lg bg-gel px-3 py-1.5 text-[12px] font-semibold text-white">
-            {fr ? "Ouvrir · répondre" : "Open · reply"}
-          </button>
         </div>
       )}
     </>
