@@ -112,6 +112,31 @@ describe("membership", () => {
   });
 });
 
+describe("history and versions", () => {
+  it("writers log history as themselves, may extend their own entry, nobody deletes", async () => {
+    await assertSucceeds(setDoc(doc(db("zoe"), `plays/${PLAY}/history/h1`), { uid: "zoe", name: "Zoé", kind: "edit", elementID: "e1", before: "Un.", after: "Un, j'ai dit.", at: soon(), count: 1 }));
+    await assertSucceeds(updateDoc(doc(db("zoe"), `plays/${PLAY}/history/h1`), { after: "Un, j'ai dit, moi.", at: soon(), count: 2 }));
+    await assertFails(updateDoc(doc(db("zoe"), `plays/${PLAY}/history/h1`), { before: "réécrit" }));
+    await assertFails(updateDoc(doc(db("jac"), `plays/${PLAY}/history/h1`), { after: "par Jac" }));
+    await assertFails(setDoc(doc(db("zoe"), `plays/${PLAY}/history/h2`), { uid: "jac", name: "Jac", kind: "edit", elementID: "e1", at: soon() }));
+    await assertFails(setDoc(doc(db("luc"), `plays/${PLAY}/history/h3`), { uid: "luc", name: "Luc", kind: "edit", elementID: "e1", at: soon() }));
+    await assertFails(deleteDoc(doc(db("zoe"), `plays/${PLAY}/history/h1`)));
+    await assertFails(deleteDoc(doc(db("jac"), `plays/${PLAY}/history/h1`)));
+    await assertSucceeds(getDoc(doc(db("ana"), `plays/${PLAY}/history/h1`)));
+    await assertFails(getDoc(doc(db("bob"), `plays/${PLAY}/history/h1`)));
+  });
+  it("writers save versions; the author or the owner removes them; readers read", async () => {
+    await assertSucceeds(setDoc(doc(db("zoe"), `plays/${PLAY}/versions/v1`), { uid: "zoe", name: "Lecture du 3", by: "Zoé", at: soon(), json: "{}" }));
+    await assertFails(setDoc(doc(db("luc"), `plays/${PLAY}/versions/v2`), { uid: "luc", name: "x", by: "Luc", at: soon(), json: "{}" }));
+    await assertFails(updateDoc(doc(db("zoe"), `plays/${PLAY}/versions/v1`), { name: "renommée" }));
+    await assertFails(deleteDoc(doc(db("luc"), `plays/${PLAY}/versions/v1`)));
+    await assertSucceeds(getDoc(doc(db("ana"), `plays/${PLAY}/versions/v1`)));
+    await assertSucceeds(deleteDoc(doc(db("jac"), `plays/${PLAY}/versions/v1`)));
+    await assertSucceeds(setDoc(doc(db("zoe"), `plays/${PLAY}/versions/v3`), { uid: "zoe", name: "encore", by: "Zoé", at: soon(), json: "{}" }));
+    await assertSucceeds(deleteDoc(doc(db("zoe"), `plays/${PLAY}/versions/v3`)));
+  });
+});
+
 describe("notes and presence", () => {
   it("writers and commenters leave notes as themselves; readers don't", async () => {
     await assertSucceeds(setDoc(doc(db("luc"), `plays/${PLAY}/notes/n2`), { authorUid: "luc", body: "Combien de temps ?", resolved: false }));

@@ -77,6 +77,24 @@ service cloud.firestore {
                       || (isWriter(play) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resolved', 'hidden']));
         allow delete: if isMember(play) && resource.data.authorUid == uid();
       }
+      // The history log: who changed what, when, and what it said before. Written
+      // by writers as they edit; an entry may be extended by its own author (a burst
+      // of typing on one line is ONE entry); never deleted — that is the point.
+      match /history/{id} {
+        allow read: if isMember(play);
+        allow create: if isWriter(play) && request.resource.data.uid == uid();
+        allow update: if isWriter(play) && resource.data.uid == uid() && request.resource.data.uid == uid()
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['after', 'at', 'count']);
+        allow delete: if false;
+      }
+      // Named versions (snapshots). Anyone who writes may save one; only its
+      // author or the owner may remove it.
+      match /versions/{id} {
+        allow read: if isMember(play);
+        allow create: if isWriter(play) && request.resource.data.uid == uid() && request.resource.data.json.size() <= 900000;
+        allow update: if false;
+        allow delete: if isMember(play) && (resource.data.uid == uid() || isOwner(play));
+      }
       match /presence/{who} {
         allow read: if isMember(play);
         allow write: if isMember(play) && who == uid();

@@ -78,7 +78,8 @@ export function toJSON(play: Play): string {
  * their speaker, ids/colours/timestamps are dropped, empty fields omitted. Round-trips
  * through fromJSON. Use this to revise an existing play with a model, then re-import.
  */
-export function toAiJSON(play: Play): string {
+/** `withElementIds` keeps each line's id — for shared-play versions, so a restore keeps notes anchored. */
+export function toAiJSON(play: Play, withElementIds = false): string {
   const nameOf = (id: string) => characterById(play, id)?.name ?? "?";
 
   const characters = play.characters.map((c) => {
@@ -89,6 +90,11 @@ export function toAiJSON(play: Play): string {
   });
 
   const elements = play.elements.map((el): Record<string, unknown> => {
+    const o = bare(el);
+    if (withElementIds) o.id = el.id;
+    return o;
+  });
+  function bare(el: Element): Record<string, unknown> {
     switch (el.type) {
       case "act":
         return { type: "act", label: el.label };
@@ -113,7 +119,7 @@ export function toAiJSON(play: Play): string {
         return o;
       }
     }
-  });
+  }
 
   const doc: Record<string, unknown> = { format: "la-replique/1", title: play.title, lang: play.lang };
   if (play.subtitle) doc.subtitle = play.subtitle;

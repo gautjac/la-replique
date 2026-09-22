@@ -12,6 +12,10 @@ import { strings } from "../lire/strings";
 import { useComments } from "../lire/useComments";
 import { CollabCore } from "./core";
 import { notesBackend } from "./notesBackend";
+import { historyLog, saveVersion, watchHistory, watchVersions, type HistoryEntry, type SharedVersion } from "./history";
+import { compare, summary, type DiffRow, type DocEl } from "./playDiff";
+import { toAiJSON } from "../export";
+import { makeCharacter } from "../model";
 import {
   EMULATOR, fetchAll, join, listen, myPlays, myRole, playOwner, presence, rename, send, sendEmailLink, signInDemo, signInGoogle,
   colorFor, signOutNow, watchAuth, type LineEdit, type Other, type Person, type Seat,
@@ -199,6 +203,8 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
   const [notesFor, setNotesFor] = useState<string | null | undefined>(undefined);   // undefined = closed, null = all
   const [edits, setEdits] = useState<Record<string, LineEdit>>({});
   const [showChanges, setShowChanges] = useState(false);
+  const [showVersions, setShowVersions] = useState(false);
+  const historyRef = useRef<ReturnType<typeof historyLog> | null>(null);
   // "Since my last visit": fixed for this whole session; the visit ends when the tab does.
   const since = useRef<number>((() => { try { return Number(localStorage.getItem(`lr.seen.${playID}`)) || Date.now(); } catch { return Date.now(); } })());
   const core = useRef(new CollabCore());
@@ -225,14 +231,16 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
       if (!alive) return;
       setPlay(core.current.adopt(all, { id: playID, createdAt: Date.now() }));
       const author = { uid: person.uid, name: person.name || person.email || "?" };
+      if (r === "writer") historyRef.current = historyLog(playID, author, () => latest.current);
       const seen = () => { try { localStorage.setItem(`lr.seen.${playID}`, String(Date.now())); } catch { /* fine */ } };
       window.addEventListener("pagehide", seen);
       const unlisten = listen(playID, core.current.shadow.keys(), {
         onChanges: (changes) => {
           if (!latest.current) return;
+          const old = new Map(core.current.shadow);
           const out = core.current.applyRemote(latest.current, changes);
           if (out.play !== latest.current) setPlay(out.play);
-          if (canWriteRef.current && out.ops.length) send(playID, out.ops, author);
+          if (canWriteRef.current && out.ops.length) { send(playID, out.ops, author); historyRef.current?.record(out.ops, old); }
         },
         onEdits: (next) => setEdits((cur) => {
           const out = { ...cur };
@@ -244,8 +252,9 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
       });
       const timer = window.setInterval(() => {
         if (!latest.current || !canWriteRef.current) return;
+        const old = new Map(core.current.shadow);
         const ops = core.current.flushLocal(latest.current);
-        if (ops.length) send(playID, ops, author);
+        if (ops.length) { send(playID, ops, author); historyRef.current?.record(ops, old); }
       }, 400);
       pres.current = presence(playID, person.name || person.email || "?", setOthers);
       stop = () => { window.clearInterval(timer); unlisten(); pres.current?.stop(); window.removeEventListener("pagehide", seen); seen(); };
@@ -299,7 +308,11 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
             </button>
             <button type="button" onClick={() => setShowChanges(true)}
               className="no-print fixed right-4 top-24 z-30 rounded-full border border-desk-rule bg-desk-light px-3 py-1.5 text-xs font-semibold shadow-lift hover:border-gel-bright">
-              🕘 {T(locale, "Changements", "Changes")}{recent.length ? ` · ${recent.length}` : ""}
+              🕘 {T(locale, "Historique", "History")}{recent.length ? ` · ${recent.length}` : ""}
+            </button>
+            <button type="button" onClick={() => setShowVersions(true)}
+              className="no-print fixed right-4 top-[8.5rem] z-30 rounded-full border border-desk-rule bg-desk-light px-3 py-1.5 text-xs font-semibold shadow-lift hover:border-gel-bright">
+              📌 {T(locale, "Versions", "Versions")}
             </button>
             <Editor play={play} commit={commit} others={byElement} onFocusElement={(id) => pres.current?.focus(id)}
               readOnly={!canWrite || status === "gone"} noAI noteCounts={counts} notePreviews={previews} onNotes={role === "reader" ? undefined : (id) => setNotesFor(id)} changed={changedMap} />
@@ -321,28 +334,13 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
       </footer>
 
       {showChanges && (
-        <div className="no-print fixed inset-0 z-40 flex justify-end bg-black/50" onClick={() => setShowChanges(false)}>
-          <aside className="h-full w-full max-w-md overflow-y-auto bg-desk-light p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="mb-2 flex items-center"><h2 className="font-display text-lg font-semibold">{T(locale, "Changements", "Changes")}</h2>
-              <button type="button" className="ml-auto text-sm text-gel-bright" onClick={() => setShowChanges(false)}>{STRINGS.close[locale]}</button></div>
-            <p className="mb-4 text-sm text-ink-faint">{T(locale, "Ce que les autres ont changé depuis ta dernière visite.", "What the others changed since your last visit.")}</p>
-            {recent.length === 0 && <p className="text-ink-faint">{T(locale, "Rien de neuf.", "Nothing new.")}</p>}
-            {recent.map(([id, e]) => {
-              const el = play.elements.find((x) => x.id === id);
-              if (!el) return null;
-              const who = el.type === "cue" ? play.characters.find((c) => c.id === el.characterId)?.name : undefined;
-              const text = ("text" in el ? el.text : el.label) ?? "";
-              return (
-                <button key={id} type="button" className="mb-2 flex w-full items-start gap-2.5 rounded-lg bg-desk px-3 py-2.5 text-left hover:ring-1 hover:ring-gel-bright"
-                  onClick={() => { setShowChanges(false); document.querySelector(`[data-elid="${id}"], [data-row="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>
-                  <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: colorFor(e.uid) }} />
-                  <span className="min-w-0"><span className="block text-sm">{(who ? `${who} — ` : "") + (text.length > 90 ? text.slice(0, 90) + "…" : text)}</span>
-                    <span className="text-xs text-ink-faint">{e.name} · {new Date(e.at).toLocaleString(locale === "fr" ? "fr-CA" : "en-CA", { dateStyle: "medium", timeStyle: "short" })}</span></span>
-                </button>
-              );
-            })}
-          </aside>
-        </div>
+        <HistoryDrawer playID={playID} play={play} locale={locale} canWrite={canWrite} recent={recent} commit={commit}
+          onClose={() => setShowChanges(false)}
+          onJump={(id) => { setShowChanges(false); document.querySelector(`[data-elid="${id}"], [data-row="${id}"]`)?.scrollIntoView({ behavior: "smooth", block: "center" }); }} />
+      )}
+      {showVersions && (
+        <VersionsDrawer playID={playID} play={play} locale={locale} canWrite={canWrite} person={person} ownerUid={ownerUid}
+          authors={Object.fromEntries(Object.entries(edits).map(([id, e]) => [id, e.name]))} commit={commit} onClose={() => setShowVersions(false)} />
       )}
 
       {showCast && (
@@ -444,5 +442,182 @@ function RoomNotes(props: {
         </div>
       )}
     </>
+  );
+}
+
+// MARK: history — the diary of the play
+
+function Drawer(props: { title: string; locale: Locale; onClose(): void; children: React.ReactNode; wide?: boolean }) {
+  return (
+    <div className="no-print fixed inset-0 z-40 flex justify-end bg-black/50" onClick={props.onClose}>
+      <aside className={`h-full w-full ${props.wide ? "max-w-2xl" : "max-w-md"} overflow-y-auto bg-desk-light p-5`} onClick={(e) => e.stopPropagation()}>
+        <div className="mb-3 flex items-center"><h2 className="font-display text-lg font-semibold">{props.title}</h2>
+          <button type="button" className="ml-auto text-sm text-gel-bright" onClick={props.onClose}>{STRINGS.close[props.locale]}</button></div>
+        {props.children}
+      </aside>
+    </div>
+  );
+}
+
+function HistoryDrawer(props: { playID: string; play: Play; locale: Locale; canWrite: boolean; recent: [string, LineEdit][]; commit(p: Play): void; onClose(): void; onJump(id: string): void }) {
+  const { play, locale, recent } = props;
+  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  useEffect(() => watchHistory(props.playID, setEntries), [props.playID]);
+  const verb = (e: HistoryEntry) => ({
+    edit: e.count > 1 ? T(locale, `a retouché une ligne (${e.count} passes)`, `edited a line (${e.count} passes)`) : T(locale, "a retouché une ligne", "edited a line"),
+    add: T(locale, "a ajouté une ligne", "added a line"), delete: T(locale, "a supprimé une ligne", "deleted a line"),
+    move: T(locale, "a déplacé une ligne", "moved a line"), cast: T(locale, "a changé la distribution", "changed the cast"),
+    info: T(locale, "a changé le titre ou l'en-tête", "changed the title or header"),
+  })[e.kind];
+  const days = new Map<string, HistoryEntry[]>();
+  for (const e of entries) { const k = new Date(e.at).toLocaleDateString(locale === "fr" ? "fr-CA" : "en-CA", { dateStyle: "long" }); (days.get(k) ?? days.set(k, []).get(k)!).push(e); }
+
+  const restore = (e: HistoryEntry) => {
+    if (!e.before) return;
+    if (e.kind === "delete") {
+      if (play.elements.some((x) => x.id === e.elementID)) return;
+      const b = e.before;
+      const base = { id: e.elementID } as { id: string };
+      const el =
+        b.kind === "act" ? { ...base, type: "act" as const, label: b.label ?? "" }
+        : b.kind === "scene" ? { ...base, type: "scene" as const, label: b.label ?? "", setting: b.setting, synopsis: b.synopsis }
+        : b.kind === "stage" ? { ...base, type: "stage" as const, text: b.text ?? "", alt: b.alt }
+        : b.kind === "action" ? { ...base, type: "action" as const, text: b.text ?? "" }
+        : { ...base, type: "cue" as const, characterId: b.characterID ?? "", text: b.text ?? "", parenthetical: b.parenthetical, alt: b.alt };
+      props.commit({ ...play, elements: [...play.elements, el as Play["elements"][number]], updatedAt: Date.now() });
+    } else {
+      props.commit({ ...play, elements: play.elements.map((x) => x.id === e.elementID ? ({ ...x, ...(e.before!.text !== undefined ? { text: e.before!.text } : {}), ...(e.before!.label !== undefined ? { label: e.before!.label } : {}) } as typeof x) : x), updatedAt: Date.now() });
+    }
+  };
+
+  return (
+    <Drawer title={T(locale, "Historique", "History")} locale={locale} onClose={props.onClose}>
+      {recent.length > 0 && <p className="mb-4 text-sm text-ink-faint">{T(locale, `${recent.length} lignes touchées par d'autres depuis ta dernière visite.`, `${recent.length} lines touched by others since your last visit.`)}</p>}
+      {entries.length === 0 && <p className="text-ink-faint">{T(locale, "Aucun changement enregistré pour l'instant.", "No changes recorded yet.")}</p>}
+      {[...days.entries()].map(([day, list]) => (
+        <section key={day} className="mb-5">
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-ink-faint">{day}</h3>
+          {list.map((e) => {
+            const exists = play.elements.some((x) => x.id === e.elementID);
+            const before = e.before?.text ?? e.before?.label, after = e.after?.text ?? e.after?.label;
+            return (
+              <div key={e.id} className="mb-2 rounded-lg bg-desk px-3 py-2.5 text-sm">
+                <div className="flex items-center gap-2"><span className="h-2 w-2 rounded-full" style={{ background: colorFor(e.uid) }} />
+                  <span className="font-semibold">{e.name}</span><span className="text-ink-faint">{verb(e)}</span>
+                  <span className="ml-auto text-xs text-ink-faint">{new Date(e.at).toLocaleTimeString(locale === "fr" ? "fr-CA" : "en-CA", { timeStyle: "short" })}</span></div>
+                {e.speaker && <div className="mt-1 text-[11px] font-bold tracking-wider text-gel-bright">{e.speaker}</div>}
+                {(e.kind === "edit" || e.kind === "delete") && before && <div className="mt-1 line-clamp-3 text-rose/90 line-through">{before}</div>}
+                {(e.kind === "edit" || e.kind === "add") && after && <div className="mt-1 line-clamp-3">{after}</div>}
+                <div className="mt-1.5 flex gap-3 text-xs font-semibold text-gel-bright">
+                  {exists && <button type="button" onClick={() => props.onJump(e.elementID)}>{T(locale, "Ouvrir dans le texte", "Open in the text")}</button>}
+                  {props.canWrite && ((e.kind === "edit" && exists) || (e.kind === "delete" && !exists)) && (
+                    <button type="button" onClick={() => restore(e)}>{e.kind === "delete" ? T(locale, "Remettre la ligne", "Put the line back") : T(locale, "Restaurer ce texte", "Restore this text")}</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </section>
+      ))}
+    </Drawer>
+  );
+}
+
+// MARK: versions — named snapshots, compared
+
+function docElements(json: string): DocEl[] {
+  try { const d = JSON.parse(json); return (d?.play ?? d)?.elements ?? []; } catch { return []; }
+}
+function currentDoc(play: Play): DocEl[] { return docElements(toAiJSON(play, true)); }
+
+/** The play as a version describes it — keeping line ids, so notes stay anchored. */
+function playFromDoc(play: Play, json: string): Play {
+  const d = JSON.parse(json); const src = d?.play ?? d;
+  let chars = [...play.characters];
+  const byName = (n?: string) => {
+    if (!n) return "";
+    const found = chars.find((c) => c.name.toLowerCase() === n.toLowerCase());
+    if (found) return found.id;
+    const c = makeCharacter(n.toUpperCase(), chars); chars = [...chars, c]; return c.id;
+  };
+  const elements = (src.elements as DocEl[]).map((e, i): Play["elements"][number] => {
+    const id = e.id ?? `${Date.now()}-${i}`;
+    switch (e.type) {
+      case "act": return { id, type: "act", label: e.label ?? "" };
+      case "scene": return { id, type: "scene", label: e.label ?? "", setting: e.setting, synopsis: e.synopsis, beat: e.beat as never };
+      case "stage": return { id, type: "stage", text: e.text ?? "" };
+      case "action": return { id, type: "action", text: e.text ?? "" };
+      default: return { id, type: "cue", characterId: byName(e.character), text: e.text ?? "", parenthetical: e.parenthetical };
+    }
+  });
+  return { ...play, title: src.title ?? play.title, subtitle: src.subtitle, author: src.author ?? play.author, characters: chars, elements, updatedAt: Date.now() };
+}
+
+function VersionsDrawer(props: { playID: string; play: Play; locale: Locale; canWrite: boolean; person: Person; ownerUid: string; authors: Record<string, string>; commit(p: Play): void; onClose(): void }) {
+  const { play, locale } = props;
+  const [versions, setVersions] = useState<SharedVersion[]>([]);
+  const [name, setName] = useState("");
+  const [diff, setDiff] = useState<{ from: SharedVersion; to: SharedVersion | null } | null>(null);
+  useEffect(() => watchVersions(props.playID, setVersions), [props.playID]);
+  const save = async () => {
+    await saveVersion(props.playID, name.trim(), { uid: props.person.uid, name: props.person.name || props.person.email || "?" }, toAiJSON(play, true), props.authors);
+    setName("");
+  };
+  const restore = (v: SharedVersion) => {
+    if (!window.confirm(T(locale, "Le texte actuel sera remplacé pour tout le monde. Continuer ?", "The current text will be replaced for everyone. Continue?"))) return;
+    props.commit(playFromDoc(play, v.json));
+  };
+  const input = "w-full rounded-lg border border-desk-rule bg-desk px-3 py-2 text-sm text-white placeholder:text-ink-faint focus:border-gel-bright focus:outline-none";
+
+  if (diff) {
+    const a = docElements(diff.from.json), b = diff.to ? docElements(diff.to.json) : currentDoc(play);
+    const rows = compare(a, b), s = summary(rows), authors = diff.to?.authors ?? props.authors;
+    const text = (d: DocEl) => (d.type === "cue" && d.character ? `${d.character} — ` : "") + (d.text ?? d.label ?? "");
+    const colour: Record<DiffRow["kind"], string> = { added: "#10b981", removed: "#f43f5e", changed: "#4f7cff", moved: "#8b5cf6", same: "#8b93a4" };
+    const tag = (k: DiffRow["kind"]) => ({ added: T(locale, "ajoutée", "added"), removed: T(locale, "supprimée", "deleted"), changed: T(locale, "retouchée", "edited"), moved: T(locale, "déplacée", "moved"), same: "" })[k];
+    return (
+      <Drawer title={T(locale, "Comparaison", "Comparison")} locale={locale} onClose={() => setDiff(null)} wide>
+        <p className="font-semibold">{diff.from.name} → {diff.to?.name ?? T(locale, "maintenant", "now")}</p>
+        <p className="mb-4 text-xs text-ink-faint">+{s.added} · −{s.removed} · {s.changed} {T(locale, "retouchées", "edited")} · {s.moved} {T(locale, "déplacées", "moved")}</p>
+        {!rows.some((r) => r.kind !== "same") && <p className="text-ink-faint">{T(locale, "Aucune différence.", "No differences.")}</p>}
+        {rows.map((r, i) => r.kind === "same" ? null : (
+          <div key={i} className="mb-2 rounded-lg px-3 py-2 text-sm" style={{ background: colour[r.kind] + "14", borderLeft: `3px solid ${colour[r.kind]}` }}>
+            <div className="mb-1 flex items-center gap-2"><span className="rounded-full px-1.5 text-[10px] font-bold uppercase" style={{ background: colour[r.kind] + "33", color: colour[r.kind] }}>{tag(r.kind)}</span>
+              {r.doc.id && authors[r.doc.id] && <span className="text-xs text-ink-faint">{authors[r.doc.id]}</span>}</div>
+            {r.kind === "removed" && <div className="text-rose/90 line-through">{text(r.doc)}</div>}
+            {r.kind === "changed" && <><div className="text-rose/90 line-through">{text(r.from)}</div><div>{text(r.doc)}</div></>}
+            {(r.kind === "added" || r.kind === "moved") && <div>{text(r.doc)}</div>}
+          </div>
+        ))}
+      </Drawer>
+    );
+  }
+
+  return (
+    <Drawer title="Versions" locale={locale} onClose={props.onClose}>
+      {props.canWrite && (
+        <form className="mb-5 flex gap-2" onSubmit={(e) => { e.preventDefault(); void save(); }}>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={T(locale, "Lecture du 3 octobre…", "Reading of October 3…")} className={input} />
+          <button type="submit" className="rounded-lg bg-gel px-3 py-2 text-sm font-semibold">{T(locale, "Enregistrer", "Save")}</button>
+        </form>
+      )}
+      {versions.length === 0 && <p className="text-ink-faint">{T(locale, "Aucune version enregistrée.", "No saved versions.")}</p>}
+      {versions.map((v) => (
+        <div key={v.id} className="mb-2 rounded-lg bg-desk px-3 py-2.5 text-sm">
+          <div className="flex items-baseline gap-2"><span className="font-semibold">{v.name}</span>
+            <span className="ml-auto text-xs text-ink-faint">{v.by} · {new Date(v.at).toLocaleString(locale === "fr" ? "fr-CA" : "en-CA", { dateStyle: "medium", timeStyle: "short" })}</span></div>
+          <div className="mt-1.5 flex flex-wrap gap-3 text-xs font-semibold text-gel-bright">
+            <button type="button" onClick={() => setDiff({ from: v, to: null })}>{T(locale, "Comparer à maintenant", "Compare to now")}</button>
+            {versions.filter((o) => o.id !== v.id).length > 0 && (
+              <select className="rounded bg-desk-light px-1 text-xs text-gel-bright" value="" onChange={(e) => { const o = versions.find((x) => x.id === e.target.value); if (o) setDiff({ from: v, to: o }); }}>
+                <option value="">{T(locale, "Comparer à…", "Compare to…")}</option>
+                {versions.filter((o) => o.id !== v.id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            )}
+            {props.canWrite && <button type="button" onClick={() => restore(v)}>{T(locale, "Restaurer", "Restore")}</button>}
+          </div>
+        </div>
+      ))}
+    </Drawer>
   );
 }

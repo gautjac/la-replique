@@ -234,7 +234,8 @@ describe("CollabCore (web twin)", () => {
     expect([...longestIncreasingRun(["a", null, "b", "b", "c"])].sort()).toEqual([0, 3, 4]);
   });
 
-  it("fuzz: three writers, offline spells, reloads, late deliveries — everyone converges", () => {
+  // ~4 s alone; under the full suite's parallel load it blew vitest's 5 s default.
+  it("fuzz: three writers, offline spells, reloads, late deliveries — everyone converges", { timeout: 60_000 }, () => {
     for (let seed = 1; seed <= 120; seed++) {
       let s = seed * 2654435761 % 4294967296;
       const rnd = (n: number) => { s = (s * 1664525 + 1013904223) % 4294967296; return Math.floor((s / 4294967296) * n); };
