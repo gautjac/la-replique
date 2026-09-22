@@ -13,6 +13,7 @@ import {
 } from "../ops";
 import type { CueEl, Element, ElementType, Play } from "../types";
 import { AutoTextarea } from "./AutoTextarea";
+import { NoteChipPreview, type NotePreviewItem } from "./NoteChipPreview";
 
 interface EditorProps {
   play: Play;
@@ -32,6 +33,8 @@ interface EditorProps {
   noAI?: boolean;
   /** Open notes per element id; with `onNotes`, every line gets a note chip. */
   noteCounts?: Record<string, number>;
+  /** The open threads per element, for the chip's hover preview. */
+  notePreviews?: Record<string, NotePreviewItem[]>;
   onNotes?: (id: string) => void;
   /** Lines other people changed since my last visit: a dot in their colour. */
   changed?: Record<string, { name: string; color: string }>;
@@ -42,7 +45,7 @@ interface FocusReq {
   at: number; // nonce so repeated focus of same id still fires
 }
 
-export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAlt, others, onFocusElement, readOnly, noAI, noteCounts, onNotes, changed }: EditorProps) {
+export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAlt, others, onFocusElement, readOnly, noAI, noteCounts, notePreviews, onNotes, changed }: EditorProps) {
   const { t } = useUI();
   const fieldRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const [focusReq, setFocusReq] = useState<FocusReq | null>(null);
@@ -173,18 +176,17 @@ export function Editor({ play, commit, jumpTargetId, onJumped, focusMode, showAl
                     {here.map((o) => o.name).join(", ")}
                   </span>
                 )}
-                {onNotes && (() => {
+                {onNotes && (
                   // Outside the fieldset on purpose: a read-only commenter can't place a
                   // cursor, but must still be able to pick a line.
-                  const n = noteCounts?.[el.id] ?? 0;
-                  return (
-                    <button type="button" onClick={() => onNotes(el.id)} aria-label={n ? `${n} notes` : "note"}
-                      className={`no-print absolute -right-1 top-1 z-10 inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-full px-1.5 font-sans text-[11px] font-semibold transition sm:-right-9 ${
-                        n ? "bg-gel text-white shadow-gel" : `border border-dashed border-gel/50 text-gel ${activeId === el.id ? "opacity-100" : "opacity-0 hover:opacity-100 focus-visible:opacity-100"} ${readOnly ? "sm:opacity-30" : ""}`}`}>
-                      {n ? <>💬 {n}</> : "+"}
-                    </button>
-                  );
-                })()}
+                  <NoteChipPreview
+                    count={noteCounts?.[el.id] ?? 0}
+                    items={notePreviews?.[el.id] ?? []}
+                    active={activeId === el.id}
+                    dim={!!readOnly}
+                    onOpen={() => onNotes(el.id)}
+                  />
+                )}
                 <fieldset disabled={locked} className="m-0 min-w-0 border-0 p-0">
               <ElementRow
                 el={el}

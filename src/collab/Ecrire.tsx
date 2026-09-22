@@ -291,7 +291,7 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
       </header>
 
       <RoomNotes playID={playID} role={role} ownerUid={ownerUid} play={play} person={person} locale={locale} openFor={notesFor} onClose={() => setNotesFor(undefined)}>
-        {(counts, total) => (
+        {(counts, total, previews) => (
           <>
             <button type="button" onClick={() => setNotesFor(null)}
               className="no-print fixed right-4 top-14 z-30 rounded-full border border-desk-rule bg-desk-light px-3 py-1.5 text-xs font-semibold shadow-lift hover:border-gel-bright">
@@ -302,7 +302,7 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
               🕘 {T(locale, "Changements", "Changes")}{recent.length ? ` · ${recent.length}` : ""}
             </button>
             <Editor play={play} commit={commit} others={byElement} onFocusElement={(id) => pres.current?.focus(id)}
-              readOnly={!canWrite || status === "gone"} noAI noteCounts={counts} onNotes={role === "reader" ? undefined : (id) => setNotesFor(id)} changed={changedMap} />
+              readOnly={!canWrite || status === "gone"} noAI noteCounts={counts} notePreviews={previews} onNotes={role === "reader" ? undefined : (id) => setNotesFor(id)} changed={changedMap} />
           </>
         )}
       </RoomNotes>
@@ -363,7 +363,7 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
 function RoomNotes(props: {
   playID: string; role: string; ownerUid: string; play: Play; person: Person; locale: Locale;
   openFor: string | null | undefined; onClose(): void;
-  children: (counts: Record<string, number>, total: number) => React.ReactNode;
+  children: (counts: Record<string, number>, total: number, previews: Record<string, { author: string; body: string; quote?: string; replies: number; at: number }[]>) => React.ReactNode;
 }) {
   const { play, locale, openFor } = props;
   const backend = useMemo(() => notesBackend(props.playID, props.role, props.ownerUid), [props.playID, props.role, props.ownerUid]);
@@ -381,6 +381,12 @@ function RoomNotes(props: {
     return m;
   }, [api.threads]);
   const total = api.threads.filter((th) => !th.resolved).length;
+  const previews = useMemo(() => {
+    const m: Record<string, { author: string; body: string; quote?: string; replies: number; at: number }[]> = {};
+    for (const th of api.threads) if (!th.resolved && !th.detached && th.root.elementID !== GENERAL)
+      (m[th.root.elementID] ??= []).push({ author: th.root.authorName, body: th.root.body, quote: th.root.quote, replies: th.replies.length, at: th.root.createdAt });
+    return m;
+  }, [api.threads]);
 
   const label = (id: string): string => {
     const el = play.elements.find((e) => e.id === id);
@@ -397,7 +403,7 @@ function RoomNotes(props: {
 
   return (
     <>
-      {props.children(counts, total)}
+      {props.children(counts, total, previews)}
       {openFor !== undefined && (
         <div className="no-print fixed inset-0 z-40 flex justify-end bg-black/50" onClick={props.onClose}>
           <aside className="h-full w-full max-w-md overflow-y-auto bg-paper p-5 text-ink" onClick={(e) => e.stopPropagation()}>
