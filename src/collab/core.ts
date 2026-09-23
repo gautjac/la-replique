@@ -152,6 +152,10 @@ export class CollabCore {
 
   /** Apply what others did. Local edits are flushed FIRST, so what I typed is "mine" before "theirs" lands. */
   applyRemote(play: Play, changes: Change[]): { play: Play; ops: Op[] } {
+    // What both sides agreed on BEFORE this flush: an incoming value equal to it is
+    // our own echo (the server confirming what we sent, or its timestamp resolving),
+    // not news — and must not undo what was typed since.
+    const agreed = this.shadow;
     const mine = this.flushLocal(play);
     // A line I deleted a moment ago may still arrive as "edited by someone else". Delete wins.
     const justDeleted = new Set(mine.filter((o) => o.t === "delete").map((o) => keyOf(o.ref)));
@@ -159,7 +163,7 @@ export class CollabCore {
     for (const ch of changes) {
       const k = keyOf(ch.ref);
       if (ch.t === "upsert") {
-        if (justDeleted.has(k) || same(this.shadow.get(k), ch.fields)) continue;
+        if (justDeleted.has(k) || same(this.shadow.get(k), ch.fields) || same(agreed.get(k), ch.fields)) continue;
         this.shadow.set(k, { ...ch.fields });
         touched = true;
       } else if (this.shadow.delete(k)) touched = true;

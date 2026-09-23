@@ -30,6 +30,8 @@ class Peer {
   core = new CollabCore();
   play: Play;
   online = true;
+  /** Called after every batch the engine applies — to catch a value the user would have SEEN for an instant. */
+  observe?: () => void;
   private queued: Op[] = [];
   private sent: { op: Op; version: number }[] = [];
   private seen = 0;
@@ -63,8 +65,11 @@ class Peer {
       if (ch.t === "upsert") this.serverView.set(keyOf(ch.ref), { ...ch.fields }); else this.serverView.delete(keyOf(ch.ref));
     }
     this.seen = upTo;
+    // A write the server just confirmed comes back once more as a data change
+    // (its server timestamp resolves) even though the overlay already showed it.
+    const acked = new Set(this.sent.filter((s) => s.version <= this.seen).map((s) => keyOf(s.op.ref)));
     this.sent = this.sent.filter((s) => s.version > this.seen);
-    this.deliver();
+    this.deliver(acked);
   }
   private composed(): Map<string, Fields> {
     const view = new Map([...this.serverView].map(([k, f]) => [k, { ...f }]));
@@ -76,15 +81,16 @@ class Peer {
     }
     return view;
   }
-  private deliver() {
+  private deliver(again: Set<string> = new Set()) {
     const view = this.composed();
     const changes: Change[] = [];
-    for (const [k, f] of view) if (!eq(this.lastView.get(k), f)) changes.push({ t: "upsert", ref: refOf(k), fields: f });
+    for (const [k, f] of view) if (!eq(this.lastView.get(k), f) || again.has(k)) changes.push({ t: "upsert", ref: refOf(k), fields: f });
     for (const k of this.lastView.keys()) if (!view.has(k)) changes.push({ t: "removed", ref: refOf(k) });
     this.lastView = view;
     if (!changes.length) return;
     const r = this.core.applyRemote(this.play, changes);
     this.play = r.play;
+    this.observe?.();
     this.queued.push(...r.ops);
     if (r.ops.length) this.deliver();   // the SDK reports the effect of writes issued during a callback
   }
@@ -191,6 +197,26 @@ describe("CollabCore (web twin)", () => {
     a.insert(a.play.elements[a.play.elements.length - 1], "Quatre.");
     const ops2 = a.core.flushLocal(a.play);
     expect(ops2.map((o) => o.t)).toEqual(["put"]);
+  });
+
+  // Jac's cursor jumped while typing (2026-09-22): the server's confirmation of the
+  // last tick's text arrived as a data change and the engine, having just flushed
+  // the newer text, took the older value for news and wrote it back.
+  it("typing between ticks survives the echo of the last tick", () => {
+    const [, a, [b]] = table();
+    const l = a.line("Un.")!;
+    a.setText(l, "Un a"); a.tick(); a.upload();     // sent
+    a.setText(l, "Un au");                          // typed since, not yet ticked
+    const seen: string[] = [];
+    a.observe = () => { const e = a.play.elements.find((x) => x.id === l.id); seen.push(e && "text" in e ? e.text : "?"); };
+    a.receive();                                    // the confirmation of "Un a" lands now
+    expect(a.line("Un au")).toBeDefined();
+    expect([...new Set(seen)], "an echo of my own write must never undo what I typed since, not even for an instant").toEqual(["Un au"]);
+    a.tick(); a.upload(); a.receive();
+    expect(a.line("Un au")).toBeDefined();
+    settle([a, b]);
+    expect(b.line("Un au")?.id).toBe(l.id);
+    expect(a.fingerprint).toBe(b.fingerprint);
   });
 
   it("offline edits merge on reconnect, even across a reload", () => {

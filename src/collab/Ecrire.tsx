@@ -16,6 +16,7 @@ import { historyLog, saveVersion, watchHistory, watchVersions, type HistoryEntry
 import { compare, summary, type DiffRow, type DocEl } from "./playDiff";
 import { toAiJSON } from "../export";
 import { DiffText } from "../ui/DiffText";
+import { hasChange } from "./wordDiff";
 import { makeCharacter } from "../model";
 import {
   EMULATOR, fetchAll, join, listen, myPlays, myRole, playOwner, presence, rename, send, sendEmailLink, signInDemo, signInGoogle,
@@ -510,7 +511,9 @@ function HistoryDrawer(props: { playID: string; play: Play; locale: Locale; canW
                   <span className="font-semibold">{e.name}</span><span className="text-ink-faint">{verb(e)}</span>
                   <span className="ml-auto text-xs text-ink-faint">{when(e)}</span></div>
                 {e.speaker && <div className="mt-1 text-[11px] font-bold tracking-wider text-gel-bright">{e.speaker}</div>}
-                {e.kind === "edit" && <DiffText before={before ?? ""} after={after ?? ""} color={colorFor(e.uid)} className="mt-1" />}
+                {e.kind === "edit" && (hasChange(before ?? "", after ?? "")
+                  ? <DiffText before={before ?? ""} after={after ?? ""} color={colorFor(e.uid)} className="mt-1" />
+                  : <div className="mt-1 text-ink-faint">{T(locale, "Le texte est revenu au même.", "The text ended up the same.")}</div>)}
                 {e.kind === "delete" && before && <div className="mt-1 whitespace-pre-wrap text-rose/90 line-through">{before}</div>}
                 {e.kind === "add" && after && <div className="mt-1 whitespace-pre-wrap font-semibold" style={{ color: colorFor(e.uid) }}>{after}</div>}
                 <div className="mt-1.5 flex gap-3 text-xs font-semibold text-gel-bright">

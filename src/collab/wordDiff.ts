@@ -1,13 +1,17 @@
 // A word-level comparison of two texts — twin of the app's WordDiff.swift:
-// same tokens (runs of non-blanks / runs of blanks), same plain LCS, so both
-// sides show the same segments on the same input (shared test vectors).
+// same tokens (runs of non-blanks / runs of blanks / single newlines), same
+// plain LCS, same verse focus, so both sides show the same thing on the same
+// input (shared test vectors).
 
 export type Segment = { kind: "same" | "removed" | "inserted"; text: string };
+export type Line = { segments: Segment[]; changed: boolean };
+export type Focused = Line | "gap";
 
 export function tokens(s: string): string[] {
   const out: string[] = [];
   let cur = "", blank: boolean | undefined;
   for (const ch of s) {
+    if (ch === "\n") { if (cur) { out.push(cur); cur = ""; } out.push("\n"); blank = undefined; continue; }
     const b = /\s/.test(ch);
     if (blank !== undefined && blank !== b) { out.push(cur); cur = ""; }
     cur += ch; blank = b;
@@ -58,3 +62,39 @@ function normalise(raw: Segment[]): Segment[] {
   flush();
   return out;
 }
+
+/** A newline that came or went shows as « ↵ »: an inserted break ends the verse there; a removed one joins two verses. */
+export const NEWLINE_MARK = "↵";
+
+/** The merged diff, verse by verse. */
+export function lines(segs: Segment[]): Line[] {
+  const out: Line[] = [];
+  let cur: Line = { segments: [], changed: false };
+  const push = (s: Segment) => { cur.segments.push(s); if (s.kind !== "same") cur.changed = true; };
+  const end = () => { out.push(cur); cur = { segments: [], changed: false }; };
+  for (const seg of segs) {
+    const parts = seg.text.split("\n");
+    parts.forEach((part, i) => {
+      if (i > 0) {
+        if (seg.kind === "same") end();
+        else if (seg.kind === "inserted") { push({ kind: "inserted", text: NEWLINE_MARK }); end(); }
+        else push({ kind: "removed", text: NEWLINE_MARK });
+      }
+      if (part) push({ kind: seg.kind, text: part });
+    });
+  }
+  out.push(cur);
+  return out;
+}
+
+/** Only the verses that changed, `context` verses around each, "gap" between. A short text (up to `showAllUpTo` verses) is shown whole. */
+export function focus(ls: Line[], context = 1, showAllUpTo = 4): Focused[] {
+  if (ls.length <= showAllUpTo || !ls.some((l) => l.changed)) return ls;
+  const keep = new Set<number>();
+  ls.forEach((l, i) => { if (l.changed) for (let k = Math.max(0, i - context); k <= Math.min(ls.length - 1, i + context); k++) keep.add(k); });
+  const out: Focused[] = [];
+  ls.forEach((l, i) => { if (keep.has(i)) out.push(l); else if (out[out.length - 1] !== "gap") out.push("gap"); });
+  return out;
+}
+
+export const hasChange = (a: string, b: string): boolean => wordDiff(a, b).some((s) => s.kind !== "same");
