@@ -16,6 +16,7 @@ import { historyLog, saveVersion, watchHistory, watchVersions, type HistoryEntry
 import { compare, summary, type DiffRow, type DocEl } from "./playDiff";
 import { toAiJSON } from "../export";
 import { DiffText } from "../ui/DiffText";
+import { CollabHelp } from "./CollabHelp";
 import { hasChange } from "./wordDiff";
 import { makeCharacter } from "../model";
 import {
@@ -87,6 +88,7 @@ function Shell(props: { locale: Locale; setLocale(l: Locale): void; person?: Per
         <p className="mt-10 text-sm text-ink-faint">
           {props.person.email ?? props.person.name} ·{" "}
           <button type="button" className="text-gel-bright hover:underline" onClick={() => void signOutNow()}>{T(locale, "Se déconnecter", "Sign out")}</button>
+          {" · "}<CollabHelp locale={locale} auto />
         </p>
       )}
     </div>
@@ -325,6 +327,7 @@ function Room({ playID, person, locale, setLocale }: { playID: string; person: P
       <footer className="no-print fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t border-desk-rule bg-desk-light px-4 py-1.5 text-xs text-ink-faint">
         <span className={`h-2 w-2 rounded-full ${dot}`} /> <span className="font-medium">{label}</span>
         {!canWrite && <span>· {T(locale, "lecture seule", "read-only")} ({roleLabel(role, locale)})</span>}
+        <span>· <CollabHelp locale={locale} auto className="text-gel-bright hover:underline" /></span>
         <span className="ml-auto flex items-center gap-2">
           <span className="flex -space-x-1.5">
             {others.slice(0, 5).map((o) => (
